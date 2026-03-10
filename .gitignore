@@ -193,3 +193,6 @@ data/personal_assistant_kb/
 # Private Credentials, ignore everything in the folder but the .gitkeep file
 privatecredentials/*
 !privatecredentials/.gitkeep
+
+# Personal assistant prompts (contain personal information — copy from prompts.example.py)
+src/agents/personal_assistant/prompts.py
