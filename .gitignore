@@ -187,6 +187,8 @@ cython_debug/
 *.db
 *.sqlite3
 *.bin
+chroma_db/
+data/personal_assistant_kb/
 
 # Private Credentials, ignore everything in the folder but the .gitkeep file
 privatecredentials/*

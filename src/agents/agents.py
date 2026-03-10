@@ -4,6 +4,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.pregel import Pregel
 
 from agents.bg_task_agent.bg_task_agent import bg_task_agent
+from agents.personal_assistant.personal_assistant import personal_assistant
 from agents.chatbot import chatbot
 from agents.command_agent import command_agent
 from agents.github_mcp_agent.github_mcp_agent import github_mcp_agent
@@ -60,6 +61,10 @@ agents: dict[str, Agent] = {
     "github-mcp-agent": Agent(
         description="A GitHub agent with MCP tools for repository management and development workflows.",
         graph_like=github_mcp_agent,
+    ),
+    "personal-assistant": Agent(
+        description="A personal assistant with a persistent knowledge base for people, projects, and processes.",
+        graph_like=personal_assistant,
     ),
 }
 

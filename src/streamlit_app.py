@@ -134,12 +134,11 @@ async def main() -> None:
         with st.popover(":material/settings: Settings", use_container_width=True):
             model_idx = agent_client.info.models.index(agent_client.info.default_model)
             model = st.selectbox("LLM to use", options=agent_client.info.models, index=model_idx)
-            agent_list = [a.key for a in agent_client.info.agents]
-            agent_idx = agent_list.index(agent_client.info.default_agent)
+            agent_list = ["personal-assistant"]
             agent_client.agent = st.selectbox(
                 "Agent to use",
                 options=agent_list,
-                index=agent_idx,
+                index=0,
             )
             use_streaming = st.toggle("Stream results", value=True)
             # Audio toggle with callback: clears cached audio when toggled off
@@ -206,15 +205,8 @@ async def main() -> None:
 
     if len(messages) == 0:
         match agent_client.agent:
-            case "chatbot":
-                WELCOME = "Hello! I'm a simple chatbot. Ask me anything!"
-            case "interrupt-agent":
-                WELCOME = "Hello! I'm an interrupt agent. Tell me your birthday and I will predict your personality!"
-            case "research-assistant":
-                WELCOME = "Hello! I'm an AI-powered research assistant with web search and a calculator. Ask me anything!"
-            case "rag-assistant":
-                WELCOME = """Hello! I'm an AI-powered Company Policy & HR assistant with access to AcmeTech's Employee Handbook.
-                I can help you find information about benefits, remote work, time-off policies, company values, and more. Ask me anything!"""
+            case "personal-assistant":
+                WELCOME = "Hello! I'm your personal assistant. Tell me about your projects, people you work with, or anything you want me to remember. I'll keep track of it and bring it up when relevant."
             case _:
                 WELCOME = "Hello! I'm an AI agent. Ask me anything!"
 

@@ -43,6 +43,7 @@ class AnthropicModelName(StrEnum):
 
     HAIKU_45 = "claude-haiku-4-5"
     SONNET_45 = "claude-sonnet-4-5"
+    SONNET_46 = "claude-sonnet-4-6"
 
 
 class GoogleModelName(StrEnum):
