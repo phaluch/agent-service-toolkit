@@ -101,12 +101,6 @@ class Settings(BaseSettings):
     COMPATIBLE_API_KEY: SecretStr | None = None
     COMPATIBLE_BASE_URL: str | None = None
 
-    OPENWEATHERMAP_API_KEY: SecretStr | None = None
-
-    # MCP Configuration
-    GITHUB_PAT: SecretStr | None = None
-    MCP_GITHUB_SERVER_URL: str = "https://api.githubcopilot.com/mcp/"
-
     LANGCHAIN_TRACING_V2: bool = False
     LANGCHAIN_PROJECT: str = "default"
     LANGCHAIN_ENDPOINT: Annotated[str, BeforeValidator(check_str_is_http)] = (

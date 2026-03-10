@@ -6,11 +6,8 @@ from collections.abc import AsyncGenerator
 
 import streamlit as st
 from dotenv import load_dotenv
-from pydantic import ValidationError
-
 from client import AgentClient, AgentClientError
 from schema import ChatHistory, ChatMessage
-from schema.task_data import TaskData, TaskDataStatus
 from voice import VoiceManager
 
 # A Streamlit app for interacting with the langgraph agent via a simple chat interface.
@@ -379,27 +376,13 @@ async def draw_messages(
                         # correct status container.
                         call_results = {}
                         for tool_call in msg.tool_calls:
-                            # Use different labels for transfer vs regular tool calls
-                            if "transfer_to" in tool_call["name"]:
-                                label = f"""💼 Sub Agent: {tool_call["name"]}"""
-                            else:
-                                label = f"""🛠️ Tool Call: {tool_call["name"]}"""
-
                             status = st.status(
-                                label,
+                                f"""🛠️ Tool Call: {tool_call["name"]}""",
                                 state="running" if is_new else "complete",
                             )
                             call_results[tool_call["id"]] = status
 
-                        # Expect one ToolMessage for each tool call.
                         for tool_call in msg.tool_calls:
-                            if "transfer_to" in tool_call["name"]:
-                                status = call_results[tool_call["id"]]
-                                status.update(expanded=True)
-                                await handle_sub_agent_msgs(messages_agen, status, is_new)
-                                break
-
-                            # Only non-transfer tool calls reach this point
                             status = call_results[tool_call["id"]]
                             status.write("Input:")
                             status.write(tool_call["args"])
@@ -410,8 +393,6 @@ async def draw_messages(
                                 st.write(tool_result)
                                 st.stop()
 
-                            # Record the message if it's new, and update the correct
-                            # status container with the result
                             if is_new:
                                 st.session_state.messages.append(tool_result)
                             if tool_result.tool_call_id:
@@ -419,31 +400,6 @@ async def draw_messages(
                             status.write("Output:")
                             status.write(tool_result.content)
                             status.update(state="complete")
-
-            case "custom":
-                # CustomData example used by the bg-task-agent
-                # See:
-                # - src/agents/utils.py CustomData
-                # - src/agents/bg_task_agent/task.py
-                try:
-                    task_data: TaskData = TaskData.model_validate(msg.custom_data)
-                except ValidationError:
-                    st.error("Unexpected CustomData message received from agent")
-                    st.write(msg.custom_data)
-                    st.stop()
-
-                if is_new:
-                    st.session_state.messages.append(msg)
-
-                if last_message_type != "task":
-                    last_message_type = "task"
-                    st.session_state.last_message = st.chat_message(
-                        name="task", avatar=":material/manufacturing:"
-                    )
-                    with st.session_state.last_message:
-                        status = TaskDataStatus()
-
-                status.add_and_draw_task_data(task_data)
 
             # In case of an unexpected message type, log an error and stop
             case _:
@@ -480,92 +436,6 @@ async def handle_feedback() -> None:
             st.stop()
         st.session_state.last_feedback = (latest_run_id, feedback)
         st.toast("Feedback recorded", icon=":material/reviews:")
-
-
-async def handle_sub_agent_msgs(messages_agen, status, is_new):
-    """
-    This function segregates agent output into a status container.
-    It handles all messages after the initial tool call message
-    until it reaches the final AI message.
-
-    Enhanced to support nested multi-agent hierarchies with handoff back messages.
-
-    Args:
-        messages_agen: Async generator of messages
-        status: the status container for the current agent
-        is_new: Whether messages are new or replayed
-    """
-    nested_popovers = {}
-
-    # looking for the transfer Success tool call message
-    first_msg = await anext(messages_agen)
-    if is_new:
-        st.session_state.messages.append(first_msg)
-
-    # Continue reading until we get an explicit handoff back
-    while True:
-        # Read next message
-        sub_msg = await anext(messages_agen)
-
-        # this should only happen is skip_stream flag is removed
-        # if isinstance(sub_msg, str):
-        #     continue
-
-        if is_new:
-            st.session_state.messages.append(sub_msg)
-
-        # Handle tool results with nested popovers
-        if sub_msg.type == "tool" and sub_msg.tool_call_id in nested_popovers:
-            popover = nested_popovers[sub_msg.tool_call_id]
-            popover.write("**Output:**")
-            popover.write(sub_msg.content)
-            continue
-
-        # Handle transfer_back_to tool calls - these indicate a sub-agent is returning control
-        if (
-            hasattr(sub_msg, "tool_calls")
-            and sub_msg.tool_calls
-            and any("transfer_back_to" in tc.get("name", "") for tc in sub_msg.tool_calls)
-        ):
-            # Process transfer_back_to tool calls
-            for tc in sub_msg.tool_calls:
-                if "transfer_back_to" in tc.get("name", ""):
-                    # Read the corresponding tool result
-                    transfer_result = await anext(messages_agen)
-                    if is_new:
-                        st.session_state.messages.append(transfer_result)
-
-            # After processing transfer back, we're done with this agent
-            if status:
-                status.update(state="complete")
-            break
-
-        # Display content and tool calls in the same nested status
-        if status:
-            if sub_msg.content:
-                status.write(sub_msg.content)
-
-            if hasattr(sub_msg, "tool_calls") and sub_msg.tool_calls:
-                for tc in sub_msg.tool_calls:
-                    # Check if this is a nested transfer/delegate
-                    if "transfer_to" in tc["name"]:
-                        # Create a nested status container for the sub-agent
-                        nested_status = status.status(
-                            f"""💼 Sub Agent: {tc["name"]}""",
-                            state="running" if is_new else "complete",
-                            expanded=True,
-                        )
-
-                        # Recursively handle sub-agents of this sub-agent
-                        await handle_sub_agent_msgs(messages_agen, nested_status, is_new)
-                    else:
-                        # Regular tool call - create popover
-                        popover = status.popover(f"{tc['name']}", icon="🛠️")
-                        popover.write(f"**Tool:** {tc['name']}")
-                        popover.write("**Input:**")
-                        popover.write(tc["args"])
-                        # Store the popover reference using the tool call ID
-                        nested_popovers[tc["id"]] = popover
 
 
 if __name__ == "__main__":
