@@ -2,6 +2,7 @@
 
 import logging
 import uuid
+from datetime import datetime, timezone
 
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
@@ -47,12 +48,14 @@ async def store_facts(facts: list[dict]) -> None:
         return
     try:
         store = get_store()
+        now = datetime.now(timezone.utc).isoformat()
         docs = [
             Document(
                 page_content=f["content"],
                 metadata={
                     "entity_type": f.get("entity_type", "general"),
                     "entity_name": f.get("entity_name", ""),
+                    "insertion_time": now,
                 },
             )
             for f in facts
@@ -65,10 +68,12 @@ async def store_facts(facts: list[dict]) -> None:
 
 
 async def retrieve_facts(query: str, k: int = 5) -> list[Document]:
-    """Return the k most relevant documents for the given query."""
+    """Return the k most relevant documents for the given query, sorted newest first."""
     try:
         store = get_store()
-        return await store.asimilarity_search(query, k=k)
+        docs = await store.asimilarity_search(query, k=k)
+        docs.sort(key=lambda d: d.metadata.get("insertion_time", ""), reverse=True)
+        return docs
     except Exception as e:
         logger.error(f"Failed to retrieve knowledge: {e}")
         return []

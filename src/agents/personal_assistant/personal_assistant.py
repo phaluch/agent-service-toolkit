@@ -115,7 +115,8 @@ async def retrieve_context(state: AgentState, config: RunnableConfig) -> AgentSt
         return {"retrieved_context": ""}
 
     context = "\n\n".join(
-        f"[{doc.metadata.get('entity_type', 'general')}] {doc.page_content}" for doc in docs
+        f"[{doc.metadata.get('entity_type', 'general')}] (stored: {doc.metadata.get('insertion_time', 'unknown')}) {doc.page_content}"
+        for doc in docs
     )
     return {"retrieved_context": context}
 
@@ -162,9 +163,9 @@ agent.add_node("extract_and_store", extract_and_store)
 agent.add_node("retrieve_context", retrieve_context)
 agent.add_node("respond", respond)
 
-agent.set_entry_point("extract_and_store")
-agent.add_edge("extract_and_store", "retrieve_context")
-agent.add_edge("retrieve_context", "respond")
+agent.set_entry_point("retrieve_context")
+agent.add_edge("retrieve_context", "extract_and_store")
+agent.add_edge("extract_and_store", "respond")
 agent.add_edge("respond", END)
 
 personal_assistant = agent.compile()
