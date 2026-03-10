@@ -4,12 +4,13 @@ import logging
 from datetime import datetime
 from typing import Literal
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, MessagesState, StateGraph
 from pydantic import BaseModel
 
 from agents.personal_assistant.knowledge_store import retrieve_facts, store_facts
+from agents.personal_assistant.todoist_tools import get_todoist_tools
 from core import get_model, settings
 
 logger = logging.getLogger(__name__)
@@ -139,6 +140,10 @@ async def respond(state: AgentState, config: RunnableConfig) -> AgentState:
     """Generate a response, injecting retrieved context into the system prompt."""
     m = get_model(config["configurable"].get("model", settings.DEFAULT_MODEL))
 
+    todoist_tools = await get_todoist_tools()
+    if todoist_tools:
+        m = m.bind_tools(todoist_tools)
+
     context = state.get("retrieved_context", "")
     if context:
         system_content = (
@@ -154,18 +159,52 @@ async def respond(state: AgentState, config: RunnableConfig) -> AgentState:
     return {"messages": [response]}
 
 
+async def execute_tools(state: AgentState, config: RunnableConfig) -> AgentState:
+    """Execute Todoist tool calls from the last AI message."""
+    last_msg = state["messages"][-1]
+    if not hasattr(last_msg, "tool_calls") or not last_msg.tool_calls:
+        return {}
+
+    tools = await get_todoist_tools()
+    tool_map = {t.name: t for t in tools}
+
+    results = []
+    for call in last_msg.tool_calls:
+        tool = tool_map.get(call["name"])
+        if tool is None:
+            logger.warning(f"Tool {call['name']} not found in Todoist tools")
+            continue
+        try:
+            result = await tool.ainvoke(call["args"], config)
+            results.append(ToolMessage(content=str(result), tool_call_id=call["id"]))
+        except Exception as e:
+            logger.error(f"Todoist tool {call['name']} failed: {e}")
+            results.append(ToolMessage(content=f"Tool call failed: {e}", tool_call_id=call["id"]))
+
+    return {"messages": results}
+
+
+def route_after_respond(state: AgentState) -> str:
+    last = state["messages"][-1]
+    if hasattr(last, "tool_calls") and last.tool_calls:
+        return "execute_tools"
+    return END
+
+
 # ---------------------------------------------------------------------------
 # Graph
 # ---------------------------------------------------------------------------
 
 agent = StateGraph(AgentState)
-agent.add_node("extract_and_store", extract_and_store)
 agent.add_node("retrieve_context", retrieve_context)
+agent.add_node("extract_and_store", extract_and_store)
 agent.add_node("respond", respond)
+agent.add_node("execute_tools", execute_tools)
 
 agent.set_entry_point("retrieve_context")
 agent.add_edge("retrieve_context", "extract_and_store")
 agent.add_edge("extract_and_store", "respond")
-agent.add_edge("respond", END)
+agent.add_conditional_edges("respond", route_after_respond, ["execute_tools", END])
+agent.add_edge("execute_tools", "respond")
 
 personal_assistant = agent.compile()
