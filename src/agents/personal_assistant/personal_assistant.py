@@ -6,22 +6,26 @@ from typing import Literal
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
+from langgraph.types import Send
 from pydantic import BaseModel
 
 from agents.personal_assistant.conversation_agent import conversation_agent
 from agents.personal_assistant.knowledge_store import retrieve_facts, store_facts
 from agents.personal_assistant.memory_agent import memory_agent
 from agents.personal_assistant.prompts import CLASSIFIER_PROMPT, EXTRACTION_PROMPT
-from agents.personal_assistant.state import AgentState
+from agents.personal_assistant.state import AgentState, IntentLiteral
 from agents.personal_assistant.todoist_agent import todoist_agent
 from agents.personal_assistant.web_search_agent import web_search_agent
 from core import get_model, settings
 
 logger = logging.getLogger(__name__)
 
+# Intents that are pre-processing steps, not routable sub-agents
+_MEMORY_OPS: set[str] = {"retrieve_context", "extract_and_store"}
+
 
 # ---------------------------------------------------------------------------
-# Shared memory nodes (run before routing, benefit all sub-agents)
+# Shared memory nodes (triggered only when the classifier selects them)
 # ---------------------------------------------------------------------------
 
 
@@ -97,18 +101,18 @@ async def retrieve_context(state: AgentState, config: RunnableConfig) -> AgentSt
 
 
 class IntentOutput(BaseModel):
-    intent: Literal["todoist", "memory", "web_search", "general"]
+    intents: list[IntentLiteral]
     reasoning: str
 
 
 async def classify_intent(state: AgentState, config: RunnableConfig) -> AgentState:
     human_messages = [m for m in state["messages"] if isinstance(m, HumanMessage)]
     if not human_messages:
-        return {"intent": "general"}
+        return {"intents": ["general"]}
 
     last_message = human_messages[-1].content
     if not isinstance(last_message, str):
-        return {"intent": "general"}
+        return {"intents": ["general"]}
 
     model_name = (
         config["configurable"].get("classifier_model")
@@ -121,15 +125,35 @@ async def classify_intent(state: AgentState, config: RunnableConfig) -> AgentSta
         result: IntentOutput = await m.ainvoke(
             [SystemMessage(content=CLASSIFIER_PROMPT), HumanMessage(content=last_message)]
         )
-        logger.debug(f"Intent classified as '{result.intent}': {result.reasoning}")
-        return {"intent": result.intent}
+        logger.debug(f"Intents classified as {result.intents!r}: {result.reasoning}")
+        return {"intents": result.intents}
     except Exception as e:
         logger.error(f"Intent classification failed: {e}")
-        return {"intent": "general"}
+        return {"intents": ["general"]}
 
 
-def route_intent(state: AgentState) -> str:
-    return f"{state.get('intent', 'general')}_agent"
+# ---------------------------------------------------------------------------
+# Routing
+# ---------------------------------------------------------------------------
+
+
+def dispatch_agents(state: AgentState) -> list[Send]:
+    """Edge routing function: fan-out to extract_and_store and each agent in parallel."""
+    intents = state.get("intents", ["general"])
+    sends = []
+    if "extract_and_store" in intents:
+        sends.append(Send("extract_and_store", state))
+    for intent in intents:
+        if intent not in _MEMORY_OPS:
+            sends.append(Send(f"{intent}_agent", state))
+    return sends
+
+
+def route_after_classify(state: AgentState) -> str | list[Send]:
+    """If retrieval was requested, run it first; otherwise fan-out immediately."""
+    if "retrieve_context" in state.get("intents", []):
+        return "retrieve_context"
+    return dispatch_agents(state)
 
 
 # ---------------------------------------------------------------------------
@@ -138,30 +162,23 @@ def route_intent(state: AgentState) -> str:
 
 agent = StateGraph(AgentState)
 
+agent.add_node("classify_intent", classify_intent)
 agent.add_node("retrieve_context", retrieve_context)
 agent.add_node("extract_and_store", extract_and_store)
-agent.add_node("classify_intent", classify_intent)
 agent.add_node("todoist_agent", todoist_agent)
 agent.add_node("memory_agent", memory_agent)
 agent.add_node("conversation_agent", conversation_agent)
 agent.add_node("web_search_agent", web_search_agent)
 
-agent.set_entry_point("retrieve_context")
-agent.add_edge("retrieve_context", "extract_and_store")
-agent.add_edge("extract_and_store", "classify_intent")
-agent.add_conditional_edges(
-    "classify_intent",
-    route_intent,
-    {
-        "todoist_agent": "todoist_agent",
-        "memory_agent": "memory_agent",
-        "conversation_agent": "conversation_agent",
-        "web_search_agent": "web_search_agent",
-    },
-)
+agent.set_entry_point("classify_intent")
+agent.add_conditional_edges("classify_intent", route_after_classify)
+agent.add_conditional_edges("retrieve_context", dispatch_agents)
+
+# dispatch_agents uses Send — no explicit edges needed for the agent nodes
 agent.add_edge("todoist_agent", END)
 agent.add_edge("memory_agent", END)
 agent.add_edge("conversation_agent", END)
 agent.add_edge("web_search_agent", END)
+agent.add_edge("extract_and_store", END)
 
 personal_assistant = agent.compile()
