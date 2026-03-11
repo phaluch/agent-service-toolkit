@@ -7,4 +7,4 @@ from langgraph.graph import MessagesState
 
 class AgentState(MessagesState, total=False):
     retrieved_context: str
-    intent: Literal["todoist", "memory", "general"]
+    intent: Literal["todoist", "memory", "web_search", "general"]

@@ -82,6 +82,7 @@ class Settings(BaseSettings):
 
     OPENAI_API_KEY: SecretStr | None = None
     TODOIST_API_KEY: SecretStr | None = None
+    PERPLEXITY_API_KEY: SecretStr | None = None
     DEEPSEEK_API_KEY: SecretStr | None = None
     ANTHROPIC_API_KEY: SecretStr | None = None
     GOOGLE_API_KEY: SecretStr | None = None

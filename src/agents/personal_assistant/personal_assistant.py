@@ -14,6 +14,7 @@ from agents.personal_assistant.memory_agent import memory_agent
 from agents.personal_assistant.prompts import CLASSIFIER_PROMPT, EXTRACTION_PROMPT
 from agents.personal_assistant.state import AgentState
 from agents.personal_assistant.todoist_agent import todoist_agent
+from agents.personal_assistant.web_search_agent import web_search_agent
 from core import get_model, settings
 
 logger = logging.getLogger(__name__)
@@ -96,7 +97,7 @@ async def retrieve_context(state: AgentState, config: RunnableConfig) -> AgentSt
 
 
 class IntentOutput(BaseModel):
-    intent: Literal["todoist", "memory", "general"]
+    intent: Literal["todoist", "memory", "web_search", "general"]
     reasoning: str
 
 
@@ -143,6 +144,7 @@ agent.add_node("classify_intent", classify_intent)
 agent.add_node("todoist_agent", todoist_agent)
 agent.add_node("memory_agent", memory_agent)
 agent.add_node("conversation_agent", conversation_agent)
+agent.add_node("web_search_agent", web_search_agent)
 
 agent.set_entry_point("retrieve_context")
 agent.add_edge("retrieve_context", "extract_and_store")
@@ -154,10 +156,12 @@ agent.add_conditional_edges(
         "todoist_agent": "todoist_agent",
         "memory_agent": "memory_agent",
         "conversation_agent": "conversation_agent",
+        "web_search_agent": "web_search_agent",
     },
 )
 agent.add_edge("todoist_agent", END)
 agent.add_edge("memory_agent", END)
 agent.add_edge("conversation_agent", END)
+agent.add_edge("web_search_agent", END)
 
 personal_assistant = agent.compile()
