@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm && r
 COPY pyproject.toml .
 COPY uv.lock .
 RUN pip install --no-cache-dir uv
-RUN uv sync --frozen --no-install-project --no-dev
+RUN uv sync --no-install-project --no-dev
 
 COPY src/agents/ ./agents/
 COPY src/core/ ./core/
