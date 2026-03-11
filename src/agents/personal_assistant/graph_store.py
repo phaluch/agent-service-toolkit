@@ -89,7 +89,7 @@ _db: kuzu.Database | None = None
 def _get_db() -> kuzu.Database:
     global _db
     if _db is None:
-        Path(GRAPH_DIR).mkdir(parents=True, exist_ok=True)
+        Path(GRAPH_DIR).parent.mkdir(parents=True, exist_ok=True)
         _db = kuzu.Database(GRAPH_DIR)
     return _db
 

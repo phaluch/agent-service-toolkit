@@ -219,7 +219,7 @@ agent.add_node("retrieve_context", retrieve_context)
 agent.add_node("extract_and_store", extract_and_store)
 agent.add_node("todoist_agent", todoist_agent)
 agent.add_node("memory_agent", memory_agent)
-agent.add_node("conversation_agent", conversation_agent)
+agent.add_node("general_agent", conversation_agent)
 agent.add_node("web_search_agent", web_search_agent)
 
 agent.set_entry_point("classify_intent")
@@ -229,7 +229,7 @@ agent.add_conditional_edges("retrieve_context", dispatch_agents)
 # dispatch_agents uses Send — no explicit edges needed for the agent nodes
 agent.add_edge("todoist_agent", END)
 agent.add_edge("memory_agent", END)
-agent.add_edge("conversation_agent", END)
+agent.add_edge("general_agent", END)
 agent.add_edge("web_search_agent", END)
 agent.add_edge("extract_and_store", END)
 
