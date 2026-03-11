@@ -8,22 +8,47 @@ prompts.py is gitignored so personal information stays off the repo.
 # personal_assistant.py — knowledge extraction
 # ---------------------------------------------------------------------------
 
-EXTRACTION_PROMPT = """\
-You analyze messages to extract stable, long-term knowledge worth storing in a personal knowledge base.
+GRAPH_EXTRACTION_PROMPT = """\
+Analyze the message and extract two complementary representations of any stable, long-term knowledge.
 
-Extract facts that are:
-- Descriptions of people (who they are, their role, relationship to the user)
+## 1. Facts (flat sentences for semantic search)
+
+Extract facts worth persisting in a personal knowledge base:
+- Descriptions of people (who they are, role, relationship to the user)
 - Project scope, status, or important context
-- Process notes, decisions, or ways of doing things
-- Any information the user would want to recall months from now
+- Process notes, decisions, ways of doing things
+- Preferences, constraints, or recurring patterns
 
-Do NOT extract:
-- Ephemeral or time-sensitive information (e.g. "I'm tired today")
-- Simple questions or requests
-- Things already universally known
+Do NOT extract ephemeral info ("I'm tired today"), simple questions, or universally known facts.
+Write each fact as a complete, self-contained sentence.
 
-For each fact, write a complete, self-contained sentence understandable without the original message.
-Return an empty list if nothing worth storing is found.\
+## 2. Graph entities and relationships
+
+Extract the same information as structured graph nodes and edges.
+
+**Entity types:**
+- person       — a specific individual
+- project      — a work initiative, product, or deliverable
+- organization — a company, team, or institution
+- topic        — a technology, domain, or subject area
+- process      — a recurring workflow or procedure
+
+**Relationship types and valid endpoints:**
+- WORKS_ON      (person → project)   — someone works on a project; props: role, since
+- WORKS_AT      (person → org)       — someone works at an organization; props: role
+- KNOWS         (person → person)    — two people know each other; props: context
+- USES          (project → topic)    — a project uses a technology/topic
+- INTERESTED_IN (person → topic)     — someone is interested in a subject
+- PART_OF       (project → project)  — a project is part of a larger initiative
+- INVOLVES      (process → person)   — a process involves a person
+- RELATED_TO    (topic → topic)      — two topics are related
+- MENTIONS      (person → topic)     — a person mentioned a topic
+
+**Rules:**
+- entity `name` must be the canonical proper name (e.g. "Paulo", "Project Alpha")
+- Only include relationships where both endpoints are clearly named
+- `properties` should only contain values explicitly stated or strongly implied
+- Return empty lists if nothing worth storing is found\
 """
 
 # ---------------------------------------------------------------------------

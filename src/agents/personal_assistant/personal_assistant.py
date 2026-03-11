@@ -10,9 +10,10 @@ from langgraph.types import Send
 from pydantic import BaseModel
 
 from agents.personal_assistant.conversation_agent import conversation_agent
+from agents.personal_assistant.graph_store import upsert_entities, upsert_relationships
 from agents.personal_assistant.knowledge_store import retrieve_facts, store_facts
 from agents.personal_assistant.memory_agent import memory_agent
-from agents.personal_assistant.prompts import CLASSIFIER_PROMPT, EXTRACTION_PROMPT
+from agents.personal_assistant.prompts import CLASSIFIER_PROMPT, GRAPH_EXTRACTION_PROMPT
 from agents.personal_assistant.state import AgentState, IntentLiteral
 from agents.personal_assistant.todoist_agent import todoist_agent
 from agents.personal_assistant.web_search_agent import web_search_agent
@@ -35,12 +36,39 @@ class KnowledgeFact(BaseModel):
     entity_name: str
 
 
+class GraphEntity(BaseModel):
+    name: str
+    entity_type: Literal["person", "project", "organization", "topic", "process"]
+    properties: dict[str, str] = {}
+
+
+class GraphRelationship(BaseModel):
+    source: str
+    source_type: str
+    target: str
+    target_type: str
+    rel_type: Literal[
+        "WORKS_ON",
+        "WORKS_AT",
+        "KNOWS",
+        "USES",
+        "INTERESTED_IN",
+        "PART_OF",
+        "INVOLVES",
+        "RELATED_TO",
+        "MENTIONS",
+    ]
+    properties: dict[str, str] = {}
+
+
 class ExtractionOutput(BaseModel):
-    facts: list[KnowledgeFact]
+    facts: list[KnowledgeFact] = []
+    entities: list[GraphEntity] = []
+    relationships: list[GraphRelationship] = []
 
 
 async def extract_and_store(state: AgentState, config: RunnableConfig) -> AgentState:
-    """Extract stable knowledge from the latest human message and store it."""
+    """Extract stable knowledge from the latest human message and store it in both stores."""
     human_messages = [m for m in state["messages"] if isinstance(m, HumanMessage)]
     if not human_messages:
         return {}
@@ -58,8 +86,9 @@ async def extract_and_store(state: AgentState, config: RunnableConfig) -> AgentS
 
     try:
         result: ExtractionOutput = await m.ainvoke(
-            [SystemMessage(content=EXTRACTION_PROMPT), HumanMessage(content=last_message)]
+            [SystemMessage(content=GRAPH_EXTRACTION_PROMPT), HumanMessage(content=last_message)]
         )
+
         if result.facts:
             await store_facts(
                 [
@@ -67,6 +96,29 @@ async def extract_and_store(state: AgentState, config: RunnableConfig) -> AgentS
                     for f in result.facts
                 ]
             )
+
+        if result.entities:
+            n = await upsert_entities(
+                [{"name": e.name, "entity_type": e.entity_type, "properties": e.properties} for e in result.entities]
+            )
+            logger.info(f"Upserted {n} graph entities")
+
+        if result.relationships:
+            n = await upsert_relationships(
+                [
+                    {
+                        "source": r.source,
+                        "source_type": r.source_type,
+                        "target": r.target,
+                        "target_type": r.target_type,
+                        "rel_type": r.rel_type,
+                        "properties": r.properties,
+                    }
+                    for r in result.relationships
+                ]
+            )
+            logger.info(f"Upserted {n} graph relationships")
+
     except Exception as e:
         logger.error(f"Knowledge extraction failed: {e}")
 
