@@ -411,6 +411,41 @@ async def history(input: ChatHistoryInput) -> ChatHistory:
         raise HTTPException(status_code=500, detail="Unexpected error")
 
 
+@router.get("/memory/facts")
+async def memory_facts():
+    """Return all ChromaDB facts for observability."""
+    try:
+        from agents.personal_assistant.knowledge_store import get_store
+
+        store = get_store()
+        result = store.get()
+        facts = [
+            {
+                "content": doc,
+                "entity_type": meta.get("entity_type", ""),
+                "entity_name": meta.get("entity_name", ""),
+                "insertion_time": meta.get("insertion_time", ""),
+            }
+            for doc, meta in zip(result["documents"], result["metadatas"])
+        ]
+        return {"facts": facts}
+    except Exception as e:
+        logger.error(f"Failed to fetch memory facts: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/memory/graph")
+async def memory_graph():
+    """Return all Kuzu graph entities and relationships for observability."""
+    try:
+        from agents.personal_assistant.graph_store import dump_graph
+
+        return await dump_graph()
+    except Exception as e:
+        logger.error(f"Failed to fetch memory graph: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""

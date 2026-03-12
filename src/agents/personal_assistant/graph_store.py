@@ -316,3 +316,43 @@ async def search_entities(query: str, limit: int = 10) -> str:
     """Substring search across all node tables; returns formatted list."""
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, _search_entities_sync, query, limit)
+
+
+def _dump_graph_sync() -> dict:
+    """Return all entities and relationships as structured dicts for observability."""
+    _init_schema_sync()
+    conn = _get_conn()
+
+    entities = []
+    for table in _ENTITY_TABLE.values():
+        result = conn.execute(f"MATCH (n:{table}) RETURN n.*")
+        cols = [c.replace("n.", "") for c in result.get_column_names()]
+        while result.has_next():
+            row = result.get_next()
+            props = {k: v for k, v in zip(cols, row) if v is not None}
+            entities.append({"node_type": table, **props})
+
+    relationships = []
+    for rel_type, (from_table, to_table) in _REL_ENDPOINTS.items():
+        result = conn.execute(
+            f"MATCH (s:{from_table})-[:{rel_type}]->(t:{to_table}) RETURN s.name, t.name"
+        )
+        while result.has_next():
+            row = result.get_next()
+            relationships.append(
+                {
+                    "source": row[0],
+                    "source_type": from_table,
+                    "target": row[1],
+                    "target_type": to_table,
+                    "rel_type": rel_type,
+                }
+            )
+
+    return {"entities": entities, "relationships": relationships}
+
+
+async def dump_graph() -> dict:
+    """Return all graph entities and relationships for observability."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _dump_graph_sync)

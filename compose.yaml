@@ -35,6 +35,7 @@ services:
     volumes:
       - ./privatecredentials:/privatecredentials
       - ./data/personal_assistant_kb:/app/data/personal_assistant_kb
+      - ./data/personal_assistant_graph:/app/data/personal_assistant_graph
     develop:
       watch:
         - path: src/agents/
@@ -78,6 +79,17 @@ services:
         - path: src/streamlit_app.py
           action: sync+restart
           target: /app/streamlit_app.py
+
+  kuzu_explorer:
+    image: kuzudb/explorer:latest
+    ports:
+      - "8888:8000"
+    environment:
+      - MODE=READ_ONLY
+    volumes:
+      - ./data/personal_assistant_graph:/database
+    depends_on:
+      - agent_service
 
 volumes:
   postgres_data:

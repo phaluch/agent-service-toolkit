@@ -168,6 +168,61 @@ async def main() -> None:
         if st.button(":material/schema: Architecture", use_container_width=True):
             architecture_dialog()
 
+        @st.dialog("Memory Inspector", width="large")
+        def memory_inspector_dialog() -> None:
+            import httpx
+
+            base_url = agent_client.base_url.rstrip("/")
+            headers = agent_client._headers
+
+            tab_facts, tab_graph = st.tabs(["ChromaDB Facts", "Kuzu Graph"])
+
+            with tab_facts:
+                try:
+                    resp = httpx.get(f"{base_url}/memory/facts", headers=headers, timeout=10)
+                    resp.raise_for_status()
+                    facts = resp.json().get("facts", [])
+                    if not facts:
+                        st.info("No facts stored yet.")
+                    else:
+                        st.caption(f"{len(facts)} fact(s) stored")
+                        st.dataframe(
+                            facts,
+                            use_container_width=True,
+                            column_order=["entity_name", "entity_type", "content", "insertion_time"],
+                        )
+                except Exception as e:
+                    st.error(f"Failed to load facts: {e}")
+
+            with tab_graph:
+                try:
+                    resp = httpx.get(f"{base_url}/memory/graph", headers=headers, timeout=10)
+                    resp.raise_for_status()
+                    data = resp.json()
+                    entities = data.get("entities", [])
+                    relationships = data.get("relationships", [])
+
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.subheader("Entities")
+                        if not entities:
+                            st.info("No entities stored yet.")
+                        else:
+                            st.caption(f"{len(entities)} entity/ies")
+                            st.dataframe(entities, use_container_width=True)
+                    with col2:
+                        st.subheader("Relationships")
+                        if not relationships:
+                            st.info("No relationships stored yet.")
+                        else:
+                            st.caption(f"{len(relationships)} relationship(s)")
+                            st.dataframe(relationships, use_container_width=True)
+                except Exception as e:
+                    st.error(f"Failed to load graph: {e}")
+
+        if st.button(":material/hub: Memory Inspector", use_container_width=True):
+            memory_inspector_dialog()
+
         with st.popover(":material/policy: Privacy", use_container_width=True):
             st.write(
                 "Prompts, responses and feedback in this app are anonymously recorded and saved to LangSmith for product evaluation and improvement purposes only."
