@@ -8,8 +8,12 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from langgraph.graph import END, StateGraph
 
-from agents.personal_assistant.graph_store import get_entity_neighborhood, search_entities
-from agents.personal_assistant.knowledge_store import retrieve_facts, store_facts
+from agents.personal_assistant.graphiti_store import (
+    add_episode,
+    get_entity_context,
+    search_memory,
+    search_nodes,
+)
 from agents.personal_assistant.prompts import MEMORY_SYSTEM_PROMPT
 from agents.personal_assistant.state import AgentState
 from core import get_model, settings
@@ -19,68 +23,58 @@ logger = logging.getLogger(__name__)
 
 @tool
 async def search_knowledge(query: str, include_history: bool = False) -> str:
-    """Search the personal knowledge base for information about a person, project, or topic.
+    """Search the personal knowledge graph for facts about a person, project, or topic.
+
+    Performs hybrid search (semantic + keyword + graph traversal).
 
     Args:
-        query: The search query.
-        include_history: If True, also return invalidated (historical) facts, annotated
-            with their invalidation timestamp. Use when the user asks about past state,
-            previous roles, or how something has changed over time.
+        query: Natural language search query.
+        include_history: If True, also return superseded (historical) facts annotated
+            with their invalidation time. Use when the user asks about past state or
+            how something has changed over time.
     """
-    docs = await retrieve_facts(query, k=10, include_history=include_history)
-    if not docs:
-        return "No relevant facts found."
-    lines = []
-    for d in docs:
-        is_valid = d.metadata.get("is_valid", 1)
-        timestamp = d.metadata.get("insertion_time", "unknown")
-        prefix = f"[{d.metadata.get('entity_type', 'general')}] (stored: {timestamp})"
-        if not is_valid:
-            invalidated_at = d.metadata.get("invalidated_at", "unknown")
-            prefix += f" [HISTORICAL — invalidated: {invalidated_at}]"
-        lines.append(f"{prefix} {d.page_content}")
-    return "\n".join(lines)
+    result = await search_memory(query, num_results=10, include_history=include_history)
+    return result or "No relevant facts found."
 
 
 @tool
-async def save_fact(content: str, entity_type: str, entity_name: str) -> str:
-    """Store a new fact in the personal knowledge base.
+async def get_entity(entity_name: str) -> str:
+    """Get all current facts and relationships for a specific named entity.
+
+    Use this to retrieve a complete picture of a person, project, or organisation.
 
     Args:
-        content: Full self-contained sentence describing the fact.
-        entity_type: One of: person, project, process, general.
-        entity_name: Primary entity label, e.g. 'Paulo' or 'Project Alpha'.
+        entity_name: The entity's canonical name (e.g. 'Pedro', 'Project Alpha').
     """
-    await store_facts([{"content": content, "entity_type": entity_type, "entity_name": entity_name}])
+    return await get_entity_context(entity_name)
+
+
+@tool
+async def find_entities(query: str) -> str:
+    """Search for entities (people, projects, organisations, topics) by name or description.
+
+    Args:
+        query: Name or partial name to search for.
+    """
+    return await search_nodes(query, limit=10)
+
+
+@tool
+async def remember(content: str) -> str:
+    """Explicitly store a new fact or piece of information in the knowledge graph.
+
+    Use when the user asks you to remember something. Graphiti will extract
+    entities and relationships automatically.
+
+    Args:
+        content: Full self-contained statement to remember
+            (e.g. 'Pedro prefers dark mode and uses VSCode').
+    """
+    await add_episode(content)
     return f"Stored: {content}"
 
 
-@tool
-async def search_graph(entity_name: str) -> str:
-    """Search the knowledge graph for entities matching a name.
-
-    Use this to check whether a person, project, or other entity exists in the graph.
-    Pass a name or partial name (e.g. 'Salave', 'Paulo', 'Alpha') — NOT a full sentence.
-
-    Args:
-        entity_name: Name or partial name to search for (case-insensitive substring match).
-    """
-    return await search_entities(entity_name, limit=10)
-
-
-@tool
-async def get_graph_neighborhood(entity_name: str, include_history: bool = False) -> str:
-    """Get all relationships for a named entity from the knowledge graph.
-
-    Args:
-        entity_name: Exact entity name (e.g. 'Paulo', 'Project Alpha').
-        include_history: If True, also return invalidated (historical) relationships,
-            annotated with their invalidation timestamp.
-    """
-    return await get_entity_neighborhood(entity_name, include_history)
-
-
-MEMORY_TOOLS = [search_knowledge, save_fact, search_graph, get_graph_neighborhood]
+MEMORY_TOOLS = [search_knowledge, get_entity, find_entities, remember]
 
 
 async def respond(state: AgentState, config: RunnableConfig) -> AgentState:
