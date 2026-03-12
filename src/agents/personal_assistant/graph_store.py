@@ -16,7 +16,7 @@ import kuzu
 
 logger = logging.getLogger(__name__)
 
-GRAPH_DIR = "./data/personal_assistant_graph"
+GRAPH_DIR = "./data/personal_assistant_graph/db"
 
 # ---------------------------------------------------------------------------
 # Schema

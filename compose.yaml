@@ -86,10 +86,10 @@ services:
       - "8888:8000"
     environment:
       - MODE=READ_ONLY
+      - KUZU_FILE=/database/db
     volumes:
       - ./data/personal_assistant_graph:/database
-    depends_on:
-      - agent_service
+    restart: unless-stopped
 
 volumes:
   postgres_data:
