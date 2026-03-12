@@ -27,7 +27,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/info"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -52,6 +52,17 @@ services:
         - path: src/memory/
           action: sync+restart
           target: /app/memory/
+  kuzu-explorer:
+    image: kuzudb/explorer:latest
+    profiles: ["explorer"]
+    user: root
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/database
+    environment:
+      - KUZU_FILE=personal_assistant_graphiti.db
+
   streamlit_app:
     build:
       context: .

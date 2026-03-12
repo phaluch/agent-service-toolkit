@@ -23,6 +23,7 @@ from langsmith import Client as LangsmithClient
 from langsmith import uuid7
 
 from agents import DEFAULT_AGENT, AgentGraph, get_agent, get_all_agent_info, load_agent
+from agents.personal_assistant.graphiti_store import _ensure_driver
 from core import settings
 from memory import initialize_database, initialize_store
 from schema import (
@@ -78,6 +79,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             # Only setup store for Postgres as InMemoryStore doesn't need setup
             if hasattr(store, "setup"):  # ignore: union-attr
                 await store.setup()
+
+            await _ensure_driver()
 
             # Configure agents with both memory components and async loading
             agents = get_all_agent_info()
