@@ -120,7 +120,7 @@ async def main() -> None:
         "Full toolkit for running an AI agent service built with LangGraph, FastAPI and Streamlit"
         ""
 
-        if st.button(":material/chat: New Chat", use_container_width=True):
+        if st.button(":material/chat: New Chat", width='stretch'):
             st.session_state.messages = []
             st.session_state.thread_id = str(uuid.uuid4())
             # Clear saved audio when starting new chat
@@ -128,7 +128,7 @@ async def main() -> None:
                 del st.session_state.last_audio
             st.rerun()
 
-        with st.popover(":material/settings: Settings", use_container_width=True):
+        with st.popover(":material/settings: Settings", width='stretch'):
             model_idx = agent_client.info.models.index(agent_client.info.default_model)
             model = st.selectbox("LLM to use", options=agent_client.info.models, index=model_idx)
             agent_list = ["personal-assistant"]
@@ -165,7 +165,7 @@ async def main() -> None:
                 "App hosted on [Streamlit Cloud](https://share.streamlit.io/) with FastAPI service running in [Azure](https://learn.microsoft.com/en-us/azure/app-service/)"
             )
 
-        if st.button(":material/schema: Architecture", use_container_width=True):
+        if st.button(":material/schema: Architecture", width='stretch'):
             architecture_dialog()
 
         @st.dialog("Memory Inspector", width="large")
@@ -188,7 +188,7 @@ async def main() -> None:
                         st.caption(f"{len(facts)} fact(s) stored")
                         st.dataframe(
                             facts,
-                            use_container_width=True,
+                            width='stretch',
                             column_order=["entity_name", "entity_type", "content", "insertion_time"],
                         )
                 except Exception as e:
@@ -209,21 +209,21 @@ async def main() -> None:
                             st.info("No entities stored yet.")
                         else:
                             st.caption(f"{len(entities)} entity/ies")
-                            st.dataframe(entities, use_container_width=True)
+                            st.dataframe(entities, width='stretch')
                     with col2:
                         st.subheader("Relationships")
                         if not relationships:
                             st.info("No relationships stored yet.")
                         else:
                             st.caption(f"{len(relationships)} relationship(s)")
-                            st.dataframe(relationships, use_container_width=True)
+                            st.dataframe(relationships, width='stretch')
                 except Exception as e:
                     st.error(f"Failed to load graph: {e}")
 
-        if st.button(":material/hub: Memory Inspector", use_container_width=True):
+        if st.button(":material/hub: Memory Inspector", width='stretch'):
             memory_inspector_dialog()
 
-        with st.popover(":material/policy: Privacy", use_container_width=True):
+        with st.popover(":material/policy: Privacy", width='stretch'):
             st.write(
                 "Prompts, responses and feedback in this app are anonymously recorded and saved to LangSmith for product evaluation and improvement purposes only."
             )
@@ -244,7 +244,7 @@ async def main() -> None:
             st.markdown(f"**Chat URL:**\n```text\n{chat_url}\n```")
             st.info("Copy the above URL to share or revisit this chat")
 
-        if st.button(":material/upload: Share/resume chat", use_container_width=True):
+        if st.button(":material/upload: Share/resume chat", width='stretch'):
             share_chat_dialog()
 
         "[View the source code](https://github.com/JoshuaC215/agent-service-toolkit)"
