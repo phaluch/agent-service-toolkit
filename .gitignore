@@ -190,6 +190,9 @@ cython_debug/
 chroma_db/
 data/personal_assistant_kb/
 
+# Kuzu
+data/personal_assistant_graph/
+
 # Private Credentials, ignore everything in the folder but the .gitkeep file
 privatecredentials/*
 !privatecredentials/.gitkeep
