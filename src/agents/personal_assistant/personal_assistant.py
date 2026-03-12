@@ -43,9 +43,12 @@ async def extract_and_store(state: AgentState, config: RunnableConfig) -> AgentS
         return {}
 
     user_id = config["configurable"].get("user_id", "default")
+    model = config["configurable"].get("entity_extraction_model") or config[
+        "configurable"
+    ].get("model")
 
     try:
-        await add_episode(last_message, group_id=user_id)
+        await add_episode(last_message, group_id=user_id, model=model)
         logger.info("EXTRACT_AND_STORE: ingested message (%d chars) for user %r", len(last_message), user_id)
     except Exception as e:
         logger.error("EXTRACT_AND_STORE failed: %s", e)
@@ -64,9 +67,12 @@ async def retrieve_context(state: AgentState, config: RunnableConfig) -> AgentSt
         return {"retrieved_context": ""}
 
     user_id = config["configurable"].get("user_id", "default")
+    model = config["configurable"].get("entity_extraction_model") or config[
+        "configurable"
+    ].get("model")
     logger.info("RETRIEVE_CONTEXT: query=%r user=%r", query[:120], user_id)
 
-    context = await search_memory(query, num_results=10, group_id=user_id)
+    context = await search_memory(query, num_results=10, group_id=user_id, model=model)
 
     if context:
         logger.info("RETRIEVE_CONTEXT: %d char(s) returned", len(context))

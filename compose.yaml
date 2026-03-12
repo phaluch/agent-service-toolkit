@@ -34,8 +34,7 @@ services:
     # Volume mount of development-only credentials since compose watch doesn't sync ignored files and doesn't do initial sync when the service starts
     volumes:
       - ./privatecredentials:/privatecredentials
-      - ./data/personal_assistant_kb:/app/data/personal_assistant_kb
-      - ./data/personal_assistant_graph:/app/data/personal_assistant_graph
+      - ./data:/app/data
     develop:
       watch:
         - path: src/agents/
