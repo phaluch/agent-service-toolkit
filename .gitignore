@@ -188,7 +188,7 @@ cython_debug/
 *.sqlite3
 *.bin
 chroma_db/
-data/personal_assistant_kb/
+data/personal_assistant*
 
 # Kuzu
 data/personal_assistant_graph/
