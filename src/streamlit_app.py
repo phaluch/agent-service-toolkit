@@ -137,7 +137,30 @@ async def main() -> None:
                 options=agent_list,
                 index=0,
             )
-            use_streaming = st.toggle("Stream results", value=True)
+            use_streaming = st.toggle("Stream results", value=False)
+
+            with st.expander("Advanced: per-agent models"):
+                model_options = ["default"] + list(agent_client.info.models)
+                classifier_model = st.selectbox("Classifier model", options=model_options, index=0)
+                extraction_model = st.selectbox("Extraction model", options=model_options, index=0)
+                memory_model = st.selectbox("Memory model", options=model_options, index=0)
+                conversation_model = st.selectbox("Conversation model", options=model_options, index=0)
+                web_search_model = st.selectbox("Web search model", options=model_options, index=0)
+                todoist_model = st.selectbox("Todoist model", options=model_options, index=0)
+
+            agent_config: dict[str, str] = {}
+            for key, val in [
+                ("classifier_model", classifier_model),
+                ("extraction_model", extraction_model),
+                ("entity_extraction_model", extraction_model),
+                ("memory_model", memory_model),
+                ("conversation_model", conversation_model),
+                ("web_search_model", web_search_model),
+                ("todoist_model", todoist_model),
+            ]:
+                if val != "default":
+                    agent_config[key] = val
+
             # Audio toggle with callback: clears cached audio when toggled off
             enable_audio = st.toggle(
                 "Enable audio generation",
@@ -305,6 +328,7 @@ async def main() -> None:
                     model=model,
                     thread_id=st.session_state.thread_id,
                     user_id=user_id,
+                    agent_config=agent_config or None,
                 )
                 await draw_messages(stream, is_new=True)
                 # Generate TTS audio for streaming response
@@ -326,6 +350,7 @@ async def main() -> None:
                     model=model,
                     thread_id=st.session_state.thread_id,
                     user_id=user_id,
+                    agent_config=agent_config or None,
                 )
                 messages.append(response)
                 # Render AI response with optional voice

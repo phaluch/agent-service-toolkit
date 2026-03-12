@@ -72,7 +72,7 @@ class StreamInput(UserInput):
 
     stream_tokens: bool = Field(
         description="Whether to stream LLM tokens to the client.",
-        default=True,
+        default=False,
     )
 
 

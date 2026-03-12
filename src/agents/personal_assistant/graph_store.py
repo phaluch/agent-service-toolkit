@@ -93,6 +93,28 @@ _DDL = [
     "FROM Person TO Topic, is_valid BOOLEAN, invalidated_at STRING)",
 ]
 
+# Allowed writable properties per node/rel table (excludes PRIMARY KEY and auto fields).
+# Extra props from the LLM that don't match these are silently dropped to avoid
+# Kuzu "Cannot find property" binder errors.
+_NODE_PROPS: dict[str, set[str]] = {
+    "Person": {"role", "context"},
+    "Project": {"status", "description"},
+    "Organization": set(),
+    "Topic": set(),
+    "Process": {"description"},
+}
+_REL_PROPS: dict[str, set[str]] = {
+    "WORKS_ON": {"role", "since"},
+    "WORKS_AT": {"role"},
+    "KNOWS": {"context"},
+    "USES": set(),
+    "INTERESTED_IN": set(),
+    "PART_OF": set(),
+    "INVOLVES": set(),
+    "RELATED_TO": set(),
+    "MENTIONS": set(),
+}
+
 # ---------------------------------------------------------------------------
 # DB singleton
 # ---------------------------------------------------------------------------
@@ -138,12 +160,17 @@ def _rows(result: kuzu.QueryResult) -> list[list]:
 def _merge_node_sync(table: str, name: str, extra: dict[str, str]) -> None:
     """Upsert a node: create if absent, update properties if present."""
     conn = _get_conn()
-    assignments = ", ".join(f"n.{k} = ${k}" for k in extra)
+    allowed = _NODE_PROPS.get(table, set())
+    filtered = {k: v for k, v in extra.items() if k in allowed}
+    if len(filtered) < len(extra):
+        dropped = set(extra) - set(filtered)
+        logger.debug("KUZU node [%s]: dropping unknown props %s", table, dropped)
+    assignments = ", ".join(f"n.{k} = ${k}" for k in filtered)
     query = f"MERGE (n:{table} {{name: $name}})"
     if assignments:
         query += f" ON MATCH SET {assignments} ON CREATE SET {assignments}"
-    conn.execute(query, {"name": name, **extra})
-    logger.info("KUZU upsert node [%s] %r props=%s", table, name, extra or "{}")
+    conn.execute(query, {"name": name, **filtered})
+    logger.info("KUZU upsert node [%s] %r props=%s", table, name, filtered or "{}")
 
 
 def _merge_rel_sync(
@@ -174,7 +201,12 @@ def _merge_rel_sync(
         )
         return
 
-    all_props = {"is_valid": True, "invalidated_at": "", **props}
+    allowed_rel_props = _REL_PROPS.get(rel_type, set())
+    filtered_props = {k: v for k, v in props.items() if k in allowed_rel_props}
+    if len(filtered_props) < len(props):
+        dropped = set(props) - set(filtered_props)
+        logger.debug("KUZU rel [%s]: dropping unknown props %s", rel_type, dropped)
+    all_props = {"is_valid": True, "invalidated_at": "", **filtered_props}
     prop_str = ", ".join(f"{k}: ${k}" for k in all_props)
     conn.execute(
         f"MATCH (s:{from_table} {{name: $src}}), (t:{to_table} {{name: $tgt}}) "
