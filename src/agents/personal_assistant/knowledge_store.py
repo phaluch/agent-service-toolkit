@@ -71,7 +71,14 @@ async def store_facts(facts: list[dict]) -> None:
         ]
         ids = [str(uuid.uuid4()) for _ in docs]
         await store.aadd_documents(docs, ids=ids)
-        logger.info(f"Stored {len(docs)} knowledge facts")
+        logger.info("CHROMA store_facts: stored %d fact(s)", len(docs))
+        for doc in docs:
+            logger.info(
+                "  [%s/%s] %s",
+                doc.metadata["entity_type"],
+                doc.metadata["entity_name"],
+                doc.page_content[:100],
+            )
     except Exception as e:
         logger.error(f"Failed to store knowledge facts: {e}")
 
@@ -90,6 +97,7 @@ async def invalidate_facts(entity_name: str) -> int:
             where={"$and": [{"entity_name": {"$eq": entity_name}}, {"is_valid": {"$eq": 1}}]}
         )
         ids = results.get("ids", [])
+        logger.info("CHROMA invalidate_facts: entity=%r found %d valid fact(s)", entity_name, len(ids))
         if not ids:
             return 0
 
@@ -98,7 +106,7 @@ async def invalidate_facts(entity_name: str) -> int:
             {**m, "is_valid": 0, "invalidated_at": now} for m in existing_metadatas
         ]
         store._collection.update(ids=ids, metadatas=updated_metadatas)
-        logger.info(f"Invalidated {len(ids)} facts for entity '{entity_name}'")
+        logger.info("CHROMA invalidate_facts: marked %d fact(s) as historical for %r", len(ids), entity_name)
         return len(ids)
     except Exception as e:
         logger.error(f"Failed to invalidate facts for '{entity_name}': {e}")
@@ -116,8 +124,21 @@ async def retrieve_facts(
     try:
         store = get_store()
         filter_arg = None if include_history else {"is_valid": {"$eq": 1}}
+        logger.info(
+            "CHROMA retrieve_facts: query=%r k=%d include_history=%s",
+            query[:80], k, include_history,
+        )
         docs = await store.asimilarity_search(query, k=k, filter=filter_arg)
         docs.sort(key=lambda d: d.metadata.get("insertion_time", ""), reverse=True)
+        logger.info("CHROMA retrieve_facts: %d doc(s) returned", len(docs))
+        for doc in docs:
+            logger.info(
+                "  [%s/%s] valid=%s %s",
+                doc.metadata.get("entity_type", "?"),
+                doc.metadata.get("entity_name", "?"),
+                doc.metadata.get("is_valid", "?"),
+                doc.page_content[:100],
+            )
         return docs
     except Exception as e:
         logger.error(f"Failed to retrieve knowledge: {e}")

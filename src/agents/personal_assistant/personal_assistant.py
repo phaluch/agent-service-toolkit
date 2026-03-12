@@ -11,13 +11,19 @@ from pydantic import BaseModel
 
 from agents.personal_assistant.conversation_agent import conversation_agent
 from agents.personal_assistant.graph_store import (
+    get_entity_neighborhood,
     invalidate_relationships,
+    search_entities,
     upsert_entities,
     upsert_relationships,
 )
 from agents.personal_assistant.knowledge_store import invalidate_facts, retrieve_facts, store_facts
 from agents.personal_assistant.memory_agent import memory_agent
-from agents.personal_assistant.prompts import CLASSIFIER_PROMPT, GRAPH_EXTRACTION_PROMPT
+from agents.personal_assistant.prompts import (
+    CLASSIFIER_PROMPT,
+    ENTITY_EXTRACTION_PROMPT,
+    GRAPH_EXTRACTION_PROMPT,
+)
 from agents.personal_assistant.state import AgentState, IntentLiteral
 from agents.personal_assistant.todoist_agent import todoist_agent
 from agents.personal_assistant.web_search_agent import web_search_agent
@@ -137,6 +143,28 @@ async def extract_and_store(state: AgentState, config: RunnableConfig) -> AgentS
             [SystemMessage(content=GRAPH_EXTRACTION_PROMPT), HumanMessage(content=prompt_content)]
         )
 
+        logger.info(
+            "EXTRACT_AND_STORE: facts=%d entities=%d rels=%d inv_facts=%d inv_rels=%d",
+            len(result.facts),
+            len(result.entities),
+            len(result.relationships),
+            len(result.invalidate_facts),
+            len(result.invalidate_relationships),
+        )
+        for f in result.facts:
+            logger.info("  new fact [%s/%s]: %s", f.entity_type, f.entity_name, f.content[:100])
+        for e in result.entities:
+            logger.info("  new entity [%s]: %s props=%s", e.entity_type, e.name, e.properties)
+        for r in result.relationships:
+            logger.info("  new rel: %s -[%s]-> %s", r.source, r.rel_type, r.target)
+        for inv in result.invalidate_facts:
+            logger.info("  invalidate facts for %r: %s", inv.entity_name, inv.reason)
+        for inv in result.invalidate_relationships:
+            logger.info(
+                "  invalidate rel: %s -[%s]-> %s (%s): %s",
+                inv.source, inv.rel_type, inv.target or "*", inv.target_type, inv.reason,
+            )
+
         # 1. Process invalidations first
         if result.invalidate_facts:
             for inv in result.invalidate_facts:
@@ -197,6 +225,30 @@ async def extract_and_store(state: AgentState, config: RunnableConfig) -> AgentS
     return {}
 
 
+async def _extract_entity_candidates(text: str, config: RunnableConfig) -> list[str]:
+    """Use a cheap LLM to extract and normalise entity names from natural language text.
+
+    Handles typos, audio transcriptions, and informal phrasing. Returns canonical
+    Title-Case names suitable for Kuzu substring search.
+    """
+    model_name = (
+        config["configurable"].get("entity_extraction_model")
+        or config["configurable"].get("model")
+        or settings.DEFAULT_MODEL
+    )
+    m = get_model(model_name).with_structured_output(EntityCandidates)
+    try:
+        result: EntityCandidates = await m.ainvoke(
+            [SystemMessage(content=ENTITY_EXTRACTION_PROMPT), HumanMessage(content=text)]
+        )
+        candidates = result.entity_names
+        logger.info("ENTITY_EXTRACTION: %r → %s", text[:80], candidates)
+        return candidates
+    except Exception as e:
+        logger.warning("Entity extraction failed: %s", e)
+        return []
+
+
 async def retrieve_context(state: AgentState, config: RunnableConfig) -> AgentState:
     """Retrieve relevant knowledge for the latest human message."""
     human_messages = [m for m in state["messages"] if isinstance(m, HumanMessage)]
@@ -207,21 +259,68 @@ async def retrieve_context(state: AgentState, config: RunnableConfig) -> AgentSt
     if not isinstance(query, str):
         return {"retrieved_context": ""}
 
-    docs = await retrieve_facts(query)
-    if not docs:
-        return {"retrieved_context": ""}
+    logger.info("RETRIEVE_CONTEXT query=%r", query[:120])
 
-    context = "\n\n".join(
+    # --- ChromaDB: semantic fact retrieval ---
+    docs = await retrieve_facts(query)
+    logger.info("RETRIEVE_CONTEXT chroma: %d doc(s) returned", len(docs))
+    for doc in docs:
+        logger.info(
+            "  chroma [%s] %s",
+            doc.metadata.get("entity_name", "?"),
+            doc.page_content[:100],
+        )
+
+    chroma_section = "\n\n".join(
         f"[{doc.metadata.get('entity_type', 'general')}] "
         f"(stored: {doc.metadata.get('insertion_time', 'unknown')}) {doc.page_content}"
         for doc in docs
     )
+
+    # --- Kuzu: graph entity neighborhood retrieval ---
+    # Extract proper noun candidates from the query instead of passing raw NL text to Kuzu.
+    graph_parts: list[str] = []
+    candidates = await _extract_entity_candidates(query, config)
+    logger.info("RETRIEVE_CONTEXT kuzu candidates: %s", candidates)
+
+    seen_entities: set[str] = set()
+    for candidate in candidates:
+        search_result = await search_entities(candidate, limit=3)
+        if "No entities" in search_result:
+            continue
+        for line in search_result.splitlines():
+            entity_name = line.split("] ", 1)[-1].strip() if "] " in line else ""
+            if not entity_name or entity_name in seen_entities:
+                continue
+            seen_entities.add(entity_name)
+            neighborhood = await get_entity_neighborhood(entity_name)
+            logger.info("RETRIEVE_CONTEXT kuzu neighborhood for %r:\n%s", entity_name, neighborhood)
+            graph_parts.append(neighborhood)
+
+    graph_section = "\n\n".join(graph_parts)
+
+    parts = []
+    if chroma_section:
+        parts.append(f"## Knowledge base (semantic)\n{chroma_section}")
+    if graph_section:
+        parts.append(f"## Knowledge graph (relationships)\n{graph_section}")
+
+    if not parts:
+        logger.info("RETRIEVE_CONTEXT: no context found in either store")
+        return {"retrieved_context": ""}
+
+    context = "\n\n".join(parts)
+    logger.info("RETRIEVE_CONTEXT: returning %d char(s) of combined context", len(context))
     return {"retrieved_context": context}
 
 
 # ---------------------------------------------------------------------------
 # Intent classification
 # ---------------------------------------------------------------------------
+
+
+class EntityCandidates(BaseModel):
+    entity_names: list[str]
 
 
 class IntentOutput(BaseModel):

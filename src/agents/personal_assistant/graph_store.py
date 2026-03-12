@@ -143,6 +143,7 @@ def _merge_node_sync(table: str, name: str, extra: dict[str, str]) -> None:
     if assignments:
         query += f" ON MATCH SET {assignments} ON CREATE SET {assignments}"
     conn.execute(query, {"name": name, **extra})
+    logger.info("KUZU upsert node [%s] %r props=%s", table, name, extra or "{}")
 
 
 def _merge_rel_sync(
@@ -168,6 +169,9 @@ def _merge_rel_sync(
     )
     cnt = check.get_next()[0] if check.has_next() else 0
     if cnt > 0:
+        logger.info(
+            "KUZU rel already valid — skip: %r -[%s]-> %r", from_name, rel_type, to_name
+        )
         return
 
     all_props = {"is_valid": True, "invalidated_at": "", **props}
@@ -177,6 +181,7 @@ def _merge_rel_sync(
         f"CREATE (s)-[:{rel_type} {{{prop_str}}}]->(t)",
         {"src": from_name, "tgt": to_name, **all_props},
     )
+    logger.info("KUZU create rel: %r -[%s]-> %r props=%s", from_name, rel_type, to_name, props or "{}")
 
 
 # ---------------------------------------------------------------------------
@@ -257,8 +262,10 @@ def _get_entity_neighborhood_sync(entity_name: str, include_history: bool = Fals
             break
 
     if not found_table:
+        logger.info("KUZU neighborhood: entity %r not found", entity_name)
         return f"No entity named '{entity_name}' found in the knowledge graph."
 
+    logger.info("KUZU neighborhood: found %r in table %s", entity_name, found_table)
     validity_filter = "" if include_history else " WHERE r.is_valid = true"
     lines.append("Relationships:" if include_history else "Relationships (current):")
 
@@ -292,7 +299,9 @@ def _get_entity_neighborhood_sync(entity_name: str, include_history: bool = Fals
                 label += f" [invalidated: {row[2]}]"
             lines.append(label)
 
-    return "\n".join(lines) if len(lines) > 2 else f"{lines[0]}\n  (no relationships yet)"
+    result_str = "\n".join(lines) if len(lines) > 2 else f"{lines[0]}\n  (no relationships yet)"
+    logger.info("KUZU neighborhood result for %r:\n%s", entity_name, result_str)
+    return result_str
 
 
 def _search_entities_sync(query: str, limit: int = 10) -> str:
@@ -310,7 +319,9 @@ def _search_entities_sync(query: str, limit: int = 10) -> str:
             results.append(f"[{table}] {row[0]}")
 
     if not results:
+        logger.info("KUZU search_entities: no matches for %r", query)
         return f"No entities matching '{query}' found in the knowledge graph."
+    logger.info("KUZU search_entities: %d match(es) for %r: %s", len(results), query, results)
     return "\n".join(results)
 
 
@@ -349,7 +360,12 @@ def _invalidate_rel_sync(
         )
 
     row = result.get_next() if result.has_next() else [0]
-    return row[0]
+    count = row[0]
+    logger.info(
+        "KUZU invalidate_rel: %r -[%s]-> %r: %d relationship(s) marked invalid",
+        source_name, rel_type, target_name or "*", count,
+    )
+    return count
 
 
 # ---------------------------------------------------------------------------

@@ -80,16 +80,5 @@ services:
           action: sync+restart
           target: /app/streamlit_app.py
 
-  kuzu_explorer:
-    image: kuzudb/explorer:latest
-    ports:
-      - "8888:8000"
-    environment:
-      - MODE=READ_ONLY
-      - KUZU_FILE=/database/db
-    volumes:
-      - ./data/personal_assistant_graph:/database
-    restart: unless-stopped
-
 volumes:
   postgres_data:
