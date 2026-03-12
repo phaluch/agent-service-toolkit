@@ -17,16 +17,28 @@ logger = logging.getLogger(__name__)
 
 
 @tool
-async def search_knowledge(query: str) -> str:
-    """Search the personal knowledge base for information about a person, project, or topic."""
-    docs = await retrieve_facts(query, k=10)
+async def search_knowledge(query: str, include_history: bool = False) -> str:
+    """Search the personal knowledge base for information about a person, project, or topic.
+
+    Args:
+        query: The search query.
+        include_history: If True, also return invalidated (historical) facts, annotated
+            with their invalidation timestamp. Use when the user asks about past state,
+            previous roles, or how something has changed over time.
+    """
+    docs = await retrieve_facts(query, k=10, include_history=include_history)
     if not docs:
         return "No relevant facts found."
-    return "\n".join(
-        f"[{d.metadata.get('entity_type', 'general')}] "
-        f"(stored: {d.metadata.get('insertion_time', 'unknown')}) {d.page_content}"
-        for d in docs
-    )
+    lines = []
+    for d in docs:
+        is_valid = d.metadata.get("is_valid", 1)
+        timestamp = d.metadata.get("insertion_time", "unknown")
+        prefix = f"[{d.metadata.get('entity_type', 'general')}] (stored: {timestamp})"
+        if not is_valid:
+            invalidated_at = d.metadata.get("invalidated_at", "unknown")
+            prefix += f" [HISTORICAL — invalidated: {invalidated_at}]"
+        lines.append(f"{prefix} {d.page_content}")
+    return "\n".join(lines)
 
 
 @tool

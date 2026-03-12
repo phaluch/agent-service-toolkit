@@ -10,8 +10,12 @@ from langgraph.types import Send
 from pydantic import BaseModel
 
 from agents.personal_assistant.conversation_agent import conversation_agent
-from agents.personal_assistant.graph_store import upsert_entities, upsert_relationships
-from agents.personal_assistant.knowledge_store import retrieve_facts, store_facts
+from agents.personal_assistant.graph_store import (
+    invalidate_relationships,
+    upsert_entities,
+    upsert_relationships,
+)
+from agents.personal_assistant.knowledge_store import invalidate_facts, retrieve_facts, store_facts
 from agents.personal_assistant.memory_agent import memory_agent
 from agents.personal_assistant.prompts import CLASSIFIER_PROMPT, GRAPH_EXTRACTION_PROMPT
 from agents.personal_assistant.state import AgentState, IntentLiteral
@@ -61,14 +65,44 @@ class GraphRelationship(BaseModel):
     properties: dict[str, str] = {}
 
 
+class FactInvalidation(BaseModel):
+    entity_name: str
+    reason: str
+
+
+class RelationshipInvalidation(BaseModel):
+    source: str
+    source_type: str
+    rel_type: Literal[
+        "WORKS_ON",
+        "WORKS_AT",
+        "KNOWS",
+        "USES",
+        "INTERESTED_IN",
+        "PART_OF",
+        "INVOLVES",
+        "RELATED_TO",
+        "MENTIONS",
+    ]
+    target_type: str
+    target: str | None = None  # None = invalidate all of this rel_type from source
+    reason: str
+
+
 class ExtractionOutput(BaseModel):
     facts: list[KnowledgeFact] = []
     entities: list[GraphEntity] = []
     relationships: list[GraphRelationship] = []
+    invalidate_facts: list[FactInvalidation] = []
+    invalidate_relationships: list[RelationshipInvalidation] = []
 
 
 async def extract_and_store(state: AgentState, config: RunnableConfig) -> AgentState:
-    """Extract stable knowledge from the latest human message and store it in both stores."""
+    """Extract stable knowledge from the latest human message and store it in both stores.
+
+    Before invoking the extraction LLM, retrieves existing facts for the entities
+    mentioned in the message so the LLM can decide what to invalidate.
+    """
     human_messages = [m for m in state["messages"] if isinstance(m, HumanMessage)]
     if not human_messages:
         return {}
@@ -84,11 +118,49 @@ async def extract_and_store(state: AgentState, config: RunnableConfig) -> AgentS
     )
     m = get_model(model_name).with_structured_output(ExtractionOutput)
 
+    # Retrieve existing knowledge (including historical) so the LLM can decide
+    # which facts/relationships are superseded by the new message.
+    existing_docs = await retrieve_facts(last_message, k=10, include_history=False)
+    existing_context = (
+        "\n".join(
+            f"[{d.metadata.get('entity_name', '')}] {d.page_content}"
+            for d in existing_docs
+        )
+        if existing_docs
+        else "None"
+    )
+
+    prompt_content = f"EXISTING FACTS:\n{existing_context}\n\nNEW MESSAGE:\n{last_message}"
+
     try:
         result: ExtractionOutput = await m.ainvoke(
-            [SystemMessage(content=GRAPH_EXTRACTION_PROMPT), HumanMessage(content=last_message)]
+            [SystemMessage(content=GRAPH_EXTRACTION_PROMPT), HumanMessage(content=prompt_content)]
         )
 
+        # 1. Process invalidations first
+        if result.invalidate_facts:
+            for inv in result.invalidate_facts:
+                n = await invalidate_facts(inv.entity_name)
+                logger.info(
+                    "Invalidated %d facts for '%s' — reason: %s", n, inv.entity_name, inv.reason
+                )
+
+        if result.invalidate_relationships:
+            n = await invalidate_relationships(
+                [
+                    {
+                        "source": r.source,
+                        "source_type": r.source_type,
+                        "rel_type": r.rel_type,
+                        "target_type": r.target_type,
+                        "target": r.target,
+                    }
+                    for r in result.invalidate_relationships
+                ]
+            )
+            logger.info("Invalidated %d graph relationship(s)", n)
+
+        # 2. Store new knowledge
         if result.facts:
             await store_facts(
                 [

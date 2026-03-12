@@ -5,10 +5,15 @@ Schema
 Node tables : Person, Project, Organization, Topic, Process
 Rel tables  : WORKS_ON, WORKS_AT, KNOWS, USES, INTERESTED_IN,
               PART_OF, INVOLVES, RELATED_TO, MENTIONS
+
+All relationship tables carry `is_valid BOOLEAN` and `invalidated_at STRING`.
+By default queries filter to is_valid=true. Pass include_history=True to see
+the full temporal record.
 """
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -67,16 +72,25 @@ _DDL = [
     "CREATE NODE TABLE IF NOT EXISTS Topic(name STRING, PRIMARY KEY(name))",
     "CREATE NODE TABLE IF NOT EXISTS Process("
     "name STRING, description STRING, PRIMARY KEY(name))",
-    # Relationship tables
-    "CREATE REL TABLE IF NOT EXISTS WORKS_ON(FROM Person TO Project, role STRING, since STRING)",
-    "CREATE REL TABLE IF NOT EXISTS WORKS_AT(FROM Person TO Organization, role STRING)",
-    "CREATE REL TABLE IF NOT EXISTS KNOWS(FROM Person TO Person, context STRING)",
-    "CREATE REL TABLE IF NOT EXISTS USES(FROM Project TO Topic)",
-    "CREATE REL TABLE IF NOT EXISTS INTERESTED_IN(FROM Person TO Topic)",
-    "CREATE REL TABLE IF NOT EXISTS PART_OF(FROM Project TO Project)",
-    "CREATE REL TABLE IF NOT EXISTS INVOLVES(FROM Process TO Person)",
-    "CREATE REL TABLE IF NOT EXISTS RELATED_TO(FROM Topic TO Topic)",
-    "CREATE REL TABLE IF NOT EXISTS MENTIONS(FROM Person TO Topic)",
+    # Relationship tables — all carry is_valid + invalidated_at for temporal tracking
+    "CREATE REL TABLE IF NOT EXISTS WORKS_ON("
+    "FROM Person TO Project, role STRING, since STRING, is_valid BOOLEAN, invalidated_at STRING)",
+    "CREATE REL TABLE IF NOT EXISTS WORKS_AT("
+    "FROM Person TO Organization, role STRING, is_valid BOOLEAN, invalidated_at STRING)",
+    "CREATE REL TABLE IF NOT EXISTS KNOWS("
+    "FROM Person TO Person, context STRING, is_valid BOOLEAN, invalidated_at STRING)",
+    "CREATE REL TABLE IF NOT EXISTS USES("
+    "FROM Project TO Topic, is_valid BOOLEAN, invalidated_at STRING)",
+    "CREATE REL TABLE IF NOT EXISTS INTERESTED_IN("
+    "FROM Person TO Topic, is_valid BOOLEAN, invalidated_at STRING)",
+    "CREATE REL TABLE IF NOT EXISTS PART_OF("
+    "FROM Project TO Project, is_valid BOOLEAN, invalidated_at STRING)",
+    "CREATE REL TABLE IF NOT EXISTS INVOLVES("
+    "FROM Process TO Person, is_valid BOOLEAN, invalidated_at STRING)",
+    "CREATE REL TABLE IF NOT EXISTS RELATED_TO("
+    "FROM Topic TO Topic, is_valid BOOLEAN, invalidated_at STRING)",
+    "CREATE REL TABLE IF NOT EXISTS MENTIONS("
+    "FROM Person TO Topic, is_valid BOOLEAN, invalidated_at STRING)",
 ]
 
 # ---------------------------------------------------------------------------
@@ -139,29 +153,29 @@ def _merge_rel_sync(
     rel_type: str,
     props: dict[str, str],
 ) -> None:
-    """Create relationship if it does not already exist."""
+    """Create relationship if a valid one does not already exist."""
     conn = _get_conn()
 
     # Ensure both endpoints exist (MERGE with just name)
     conn.execute(f"MERGE (n:{from_table} {{name: $name}})", {"name": from_name})
     conn.execute(f"MERGE (n:{to_table} {{name: $name}})", {"name": to_name})
 
-    # Check whether the relationship already exists
+    # Check whether a valid relationship already exists
     check = conn.execute(
         f"MATCH (s:{from_table} {{name: $src}})-[r:{rel_type}]->(t:{to_table} {{name: $tgt}}) "
-        "RETURN count(r) AS cnt",
+        "WHERE r.is_valid = true RETURN count(r) AS cnt",
         {"src": from_name, "tgt": to_name},
     )
     cnt = check.get_next()[0] if check.has_next() else 0
     if cnt > 0:
         return
 
-    prop_str = ", ".join(f"{k}: ${k}" for k in props)
-    rel_literal = f"[:{rel_type} {{{prop_str}}}]" if prop_str else f"[:{rel_type}]"
+    all_props = {"is_valid": True, "invalidated_at": "", **props}
+    prop_str = ", ".join(f"{k}: ${k}" for k in all_props)
     conn.execute(
         f"MATCH (s:{from_table} {{name: $src}}), (t:{to_table} {{name: $tgt}}) "
-        f"CREATE (s)-{rel_literal}->(t)",
-        {"src": from_name, "tgt": to_name, **props},
+        f"CREATE (s)-[:{rel_type} {{{prop_str}}}]->(t)",
+        {"src": from_name, "tgt": to_name, **all_props},
     )
 
 
@@ -218,8 +232,12 @@ def _upsert_relationships_sync(relationships: list[dict]) -> int:
     return stored
 
 
-def _get_entity_neighborhood_sync(entity_name: str) -> str:
-    """Return a human-readable summary of an entity and its direct relationships."""
+def _get_entity_neighborhood_sync(entity_name: str, include_history: bool = False) -> str:
+    """Return a human-readable summary of an entity and its direct relationships.
+
+    By default only valid (current) relationships are shown. Pass include_history=True
+    to include invalidated relationships annotated with their invalidation timestamp.
+    """
     _init_schema_sync()
     conn = _get_conn()
 
@@ -241,31 +259,38 @@ def _get_entity_neighborhood_sync(entity_name: str) -> str:
     if not found_table:
         return f"No entity named '{entity_name}' found in the knowledge graph."
 
-    lines.append("Relationships:")
+    validity_filter = "" if include_history else " WHERE r.is_valid = true"
+    lines.append("Relationships:" if include_history else "Relationships (current):")
 
     # Outgoing
     for rel_type, (from_table, to_table) in _REL_ENDPOINTS.items():
         if from_table != found_table:
             continue
         result = conn.execute(
-            f"MATCH (s:{from_table} {{name: $name}})-[r:{rel_type}]->(t:{to_table}) "
-            "RETURN t.name",
+            f"MATCH (s:{from_table} {{name: $name}})-[r:{rel_type}]->(t:{to_table})"
+            f"{validity_filter} RETURN t.name, r.is_valid, r.invalidated_at",
             {"name": entity_name},
         )
         for row in _rows(result):
-            lines.append(f"  → [{rel_type}] {row[0]} ({to_table})")
+            label = f"  → [{rel_type}] {row[0]} ({to_table})"
+            if include_history and not row[1]:
+                label += f" [invalidated: {row[2]}]"
+            lines.append(label)
 
     # Incoming
     for rel_type, (from_table, to_table) in _REL_ENDPOINTS.items():
         if to_table != found_table:
             continue
         result = conn.execute(
-            f"MATCH (s:{from_table})-[r:{rel_type}]->(t:{to_table} {{name: $name}}) "
-            "RETURN s.name",
+            f"MATCH (s:{from_table})-[r:{rel_type}]->(t:{to_table} {{name: $name}})"
+            f"{validity_filter} RETURN s.name, r.is_valid, r.invalidated_at",
             {"name": entity_name},
         )
         for row in _rows(result):
-            lines.append(f"  ← [{rel_type}] {row[0]} ({from_table})")
+            label = f"  ← [{rel_type}] {row[0]} ({from_table})"
+            if include_history and not row[1]:
+                label += f" [invalidated: {row[2]}]"
+            lines.append(label)
 
     return "\n".join(lines) if len(lines) > 2 else f"{lines[0]}\n  (no relationships yet)"
 
@@ -289,6 +314,44 @@ def _search_entities_sync(query: str, limit: int = 10) -> str:
     return "\n".join(results)
 
 
+def _invalidate_rel_sync(
+    source_table: str,
+    source_name: str,
+    rel_type: str,
+    target_table: str,
+    target_name: str | None = None,
+) -> int:
+    """Mark matching relationships as is_valid=false.
+
+    If target_name is None, invalidates ALL valid relationships of rel_type
+    originating from source_name (e.g. all current WORKS_ON edges for a person).
+    Returns the number of relationships invalidated.
+    """
+    _init_schema_sync()
+    conn = _get_conn()
+    now = datetime.now(timezone.utc).isoformat()
+
+    if target_name:
+        result = conn.execute(
+            f"MATCH (s:{source_table} {{name: $src}})-[r:{rel_type}]->(t:{target_table} {{name: $tgt}}) "
+            "WHERE r.is_valid = true "
+            "SET r.is_valid = false, r.invalidated_at = $now "
+            "RETURN count(r)",
+            {"src": source_name, "tgt": target_name, "now": now},
+        )
+    else:
+        result = conn.execute(
+            f"MATCH (s:{source_table} {{name: $src}})-[r:{rel_type}]->(t:{target_table}) "
+            "WHERE r.is_valid = true "
+            "SET r.is_valid = false, r.invalidated_at = $now "
+            "RETURN count(r)",
+            {"src": source_name, "now": now},
+        )
+
+    row = result.get_next() if result.has_next() else [0]
+    return row[0]
+
+
 # ---------------------------------------------------------------------------
 # Async public API
 # ---------------------------------------------------------------------------
@@ -306,10 +369,45 @@ async def upsert_relationships(relationships: list[dict]) -> int:
     return await loop.run_in_executor(None, _upsert_relationships_sync, relationships)
 
 
-async def get_entity_neighborhood(entity_name: str) -> str:
-    """Return entity properties + all direct relationships as formatted text."""
+async def get_entity_neighborhood(entity_name: str, include_history: bool = False) -> str:
+    """Return entity properties + direct relationships as formatted text.
+
+    Pass include_history=True to include invalidated (historical) relationships.
+    """
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, _get_entity_neighborhood_sync, entity_name)
+    return await loop.run_in_executor(
+        None, _get_entity_neighborhood_sync, entity_name, include_history
+    )
+
+
+async def invalidate_relationships(relationships: list[dict]) -> int:
+    """Async wrapper — mark a list of relationships as invalid.
+
+    Each dict should have: source, source_type, rel_type, target_type,
+    and optionally target (if omitted, all valid rels of that type from source are invalidated).
+    Returns total count of invalidated relationships.
+    """
+    loop = asyncio.get_event_loop()
+    total = 0
+    for r in relationships:
+        src_table = _ENTITY_TABLE.get((r.get("source_type") or "").lower())
+        tgt_table = _ENTITY_TABLE.get((r.get("target_type") or "").lower())
+        rel_type = (r.get("rel_type") or "").upper()
+        if not src_table or not tgt_table or rel_type not in _REL_ENDPOINTS:
+            logger.warning("invalidate_relationships: skipping invalid entry %r", r)
+            continue
+        n = await loop.run_in_executor(
+            None,
+            _invalidate_rel_sync,
+            src_table,
+            r["source"],
+            rel_type,
+            tgt_table,
+            r.get("target"),
+        )
+        total += n
+        logger.info("Invalidated %d %s relationship(s) from %r", n, rel_type, r["source"])
+    return total
 
 
 async def search_entities(query: str, limit: int = 10) -> str:
