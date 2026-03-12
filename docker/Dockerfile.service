@@ -11,7 +11,6 @@ COPY pyproject.toml .
 COPY uv.lock .
 RUN pip install --no-cache-dir uv
 RUN uv sync --frozen --no-install-project --no-dev
-RUN pip install --no-cache-dir "kuzu>=0.7.0"
 
 COPY src/agents/ ./agents/
 COPY src/core/ ./core/

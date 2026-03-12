@@ -4,9 +4,12 @@ Replaces both knowledge_store.py (ChromaDB) and graph_store.py (Kuzu) with a
 single temporal knowledge graph engine that handles entity extraction, embedding,
 and temporal validity automatically.
 
-Backend: Kuzu (embedded, no server required)
+Backend: Kuzu (embedded, no server required) via graphiti-core[kuzu]
 LLM:     Anthropic if ANTHROPIC_API_KEY is set, otherwise OpenAI
 Embedder: OpenAI (requires OPENAI_API_KEY)
+
+Note: graphiti-core has neo4j as a core dependency (Python driver package only —
+no Neo4j server is required when using the Kuzu driver).
 """
 
 import logging
@@ -30,14 +33,14 @@ GRAPHITI_DB_DIR = "./data/personal_assistant_graphiti"
 def _build_llm_client():
     """Return an Anthropic client if the key is available, otherwise OpenAI."""
     if os.getenv("ANTHROPIC_API_KEY"):
-        from graphiti_core.llm_client.anthropic_client import AnthropicClient
-        from graphiti_core.llm_client.config import LLMConfig
+        from graphiti_core.llms.anthropic import AnthropicClient
+        from graphiti_core.llms.config import LLMConfig
 
         logger.info("GRAPHITI: using Anthropic LLM client")
         return AnthropicClient(LLMConfig(api_key=os.environ["ANTHROPIC_API_KEY"]))
 
-    from graphiti_core.llm_client.config import LLMConfig
-    from graphiti_core.llm_client.openai_client import OpenAIClient
+    from graphiti_core.llms.config import LLMConfig
+    from graphiti_core.llms.openai_client import OpenAIClient
 
     logger.info("GRAPHITI: using OpenAI LLM client")
     return OpenAIClient(LLMConfig(api_key=os.getenv("OPENAI_API_KEY", "")))
@@ -63,16 +66,13 @@ async def get_graphiti() -> Graphiti:
     if _graphiti is None:
         Path(GRAPHITI_DB_DIR).mkdir(parents=True, exist_ok=True)
 
-        import kuzu
-
-        db = kuzu.Database(GRAPHITI_DB_DIR)
-
         from graphiti_core.driver.kuzu_driver import KuzuDriver
 
-        driver = KuzuDriver(database=db)
+        # KuzuDriver takes a path string directly — no kuzu.Database construction needed
+        driver = KuzuDriver(db=GRAPHITI_DB_DIR)
 
         _graphiti = Graphiti(
-            driver=driver,
+            graph_driver=driver,
             llm_client=_build_llm_client(),
             embedder=_build_embedder(),
         )
@@ -90,8 +90,8 @@ async def get_graphiti() -> Graphiti:
 async def add_episode(content: str, group_id: str = "default") -> None:
     """Ingest a message as an episode.
 
-    Graphiti handles entity extraction, relationship detection, and temporal
-    supersession internally — no manual extraction step needed.
+    Graphiti handles entity extraction, relationship detection, embedding, and
+    temporal supersession internally — no manual extraction step needed.
     """
     g = await get_graphiti()
     name = f"msg_{uuid.uuid4().hex[:12]}"
@@ -154,32 +154,36 @@ async def search_memory(
 
 
 async def search_nodes(query: str, group_id: str = "default", limit: int = 10) -> str:
-    """Search for entity nodes by name/summary.
-
-    Returns a formatted list of matching entities with their summaries.
-    """
+    """Search for entity nodes by name — returns unique entity names found in matching edges."""
     g = await get_graphiti()
     try:
-        from graphiti_core.search.search_utils import (
-            DEFAULT_SEARCH_LIMIT,
-        )
-        from graphiti_core.search.search import SearchConfig
-
-        # Use Graphiti's node search
-        results = await g.search_(
-            query=query,
-            config=SearchConfig(num_results=limit),
-            group_ids=[group_id],
-        )
-        nodes = results.nodes
-        if not nodes:
+        edges = await g.search(query, num_results=limit * 2, group_ids=[group_id])
+        if not edges:
             return f"No entities matching '{query}' found."
 
-        lines = [f"[{n.labels[0] if n.labels else 'Entity'}] {n.name}" +
-                 (f" — {n.summary}" if n.summary else "")
-                 for n in nodes]
+        # Collect unique source/target names from matching edges
+        seen: set[str] = set()
+        lines: list[str] = []
+        for edge in edges:
+            for name in (edge.source_node_name, edge.target_node_name):
+                if name and name not in seen and query.lower() in name.lower():
+                    seen.add(name)
+                    lines.append(name)
+            if len(lines) >= limit:
+                break
+
+        if not lines:
+            # Fallback: return all unique entity names from the results
+            for edge in edges:
+                for name in (edge.source_node_name, edge.target_node_name):
+                    if name and name not in seen:
+                        seen.add(name)
+                        lines.append(name)
+                if len(lines) >= limit:
+                    break
+
         logger.info("GRAPHITI node_search: %r → %d result(s)", query[:80], len(lines))
-        return "\n".join(lines)
+        return "\n".join(lines) if lines else f"No entities matching '{query}' found."
     except Exception:
         logger.exception("GRAPHITI node_search failed")
         return f"Entity search failed for '{query}'."
@@ -189,7 +193,6 @@ async def get_entity_context(entity_name: str, group_id: str = "default") -> str
     """Return all current facts/relationships involving a named entity."""
     g = await get_graphiti()
     try:
-        # Search centred on the entity name to get its neighbourhood
         edges = await g.search(
             entity_name,
             num_results=20,
