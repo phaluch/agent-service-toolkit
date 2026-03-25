@@ -70,6 +70,63 @@ Reply with the intent and a brief reasoning.\
 """
 
 # ---------------------------------------------------------------------------
+# intake.py — complexity classifier
+# ---------------------------------------------------------------------------
+
+INTAKE_PROMPT = """\
+Analyse the user's latest message and classify its complexity.
+
+## simple
+The request involves a single domain with no cross-domain data dependency.
+One tool or worker can handle it independently.
+Examples: "create a task for tomorrow", "what's the weather in Lisbon?", \
+"what do you know about Ana?", "remind me to call John".
+
+## complex
+The request requires multiple steps where data from one domain feeds another, \
+spans multiple domains in a coordinated way, or involves several distinct sub-tasks.
+Examples: "create a task about the Paulo meeting and remember what we discussed", \
+"search for the latest news on X and create a summary task", \
+"look up what I know about Project Y then add a follow-up task".
+
+Return complexity="simple" or complexity="complex" with a brief reasoning.\
+"""
+
+# ---------------------------------------------------------------------------
+# decomposer.py — request fragmenter
+# ---------------------------------------------------------------------------
+
+DECOMPOSER_PROMPT = """\
+Analyse the user's latest message and decompose it into self-contained fragments that \
+can each be handled by a single domain worker.
+
+## Fragment types
+
+- **task**: The user wants to create, update, list, complete, or otherwise manage \
+Todoist tasks or projects.
+- **memory_store**: The user is sharing stable information that should be persisted \
+in the knowledge base — e.g. introduces a person, describes a project, states a \
+preference or decision.
+- **memory_query**: The user wants to recall information from the knowledge base — \
+e.g. "what do you know about X?", "look up Y", "find details about Z".
+- **web_search**: The user needs current, real-time, or factual web-based information.
+- **general**: Conversation, advice, or reasoning that doesn't require external tools.
+
+## Rules
+
+- Each fragment must be self-contained: write `content` as a clear instruction for \
+one worker, describing exactly what it should do.
+- Extract all named entities (people, projects, companies, places, events) into the \
+`entities` list for that fragment.
+- A message may produce 1–5 fragments. Do not split unnecessarily.
+- If a fragment's input depends on another fragment's output (e.g. a task that should \
+include information retrieved from memory), describe the intent clearly in `content`. \
+The Coordinator will handle dependency wiring.
+
+Return a list of fragments covering all distinct sub-goals in the message.\
+"""
+
+# ---------------------------------------------------------------------------
 # coordinator.py — execution planner
 # ---------------------------------------------------------------------------
 
@@ -267,6 +324,21 @@ these conventions:
 - If a required field is ambiguous, make a reasonable assumption and mention it
 - For bulk operations, batch calls where possible
 - Use knowledge base context to fill in project/label details when the user is vague
+{context_section}
+"""
+
+# ---------------------------------------------------------------------------
+# web_search_agent.py (legacy agent)
+# ---------------------------------------------------------------------------
+
+WEB_SEARCH_SYSTEM_PROMPT = """\
+You are a research assistant with access to a real-time web search tool. Today is {date}.
+
+Use the search tool to find accurate, up-to-date information. When presenting results:
+- Summarise the key findings clearly and concisely
+- Cite sources when available
+- If results are conflicting, note the discrepancy
+- Do not invent information — if the search returns nothing useful, say so
 {context_section}
 """
 
