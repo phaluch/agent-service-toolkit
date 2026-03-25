@@ -186,8 +186,19 @@ Each action has these fields:
    If the user asks something that would benefit from personal context (e.g. "what should
    I focus on this week?"), fetch context first with a graphiti action and pass it via
    `{{lookup.result}}` into the general action's `context` field.
-8. Memory writes ("remember that X", "note that Y") are a graphiti action with a `goal`
-   like "Store the fact that X". Do NOT special-case them — they are just another action.
+8. Memory writes — explicit and proactive:
+   a. EXPLICIT: When the user says "remember that X", "note that Y", or "store that Z",
+      always include a graphiti action with goal "Store the fact: <X>". This is the only
+      way facts are persisted — there is no background ingestion pipeline.
+   b. PROACTIVE: When the user volunteers new factual information worth preserving
+      (introduces a person with a role, shares a preference, reveals a relationship or
+      project detail) WITHOUT using the word "remember", still include a graphiti store
+      action alongside the main action. Run it in parallel (empty `depends_on`) since
+      it does not affect the primary response.
+   c. Do NOT add a store action for ephemeral or transactional messages (task CRUD,
+      searches, questions, chit-chat). Only persist durable facts.
+9. Never add a graphiti store action AND a graphiti lookup action for the same entity in
+   the same plan unless the lookup genuinely feeds a downstream action — dedup aggressively.
 
 ## Examples
 
@@ -261,6 +272,32 @@ Plan:
    "input": {"goal": "Suggest what the user should focus on this week",
              "context": "{{ctx.result}}"},
    "depends_on": ["ctx"], "reason": "Generate personalised advice with retrieved context"}
+]
+
+### Example 7 — memory write combined with another action (parallel)
+Input: "Remember that I prefer async standups. Also add a Todoist task to update the team."
+Plan:
+[
+  {"id": "store_pref", "tool": "graphiti",
+   "input": {"goal": "Store the fact: user prefers async standups over sync meetings",
+             "entity_hints": []},
+   "depends_on": [], "reason": "Persist stated preference to the knowledge graph"},
+  {"id": "create_task", "tool": "todoist",
+   "input": {"goal": "Create a task: Update team about async standup preference"},
+   "depends_on": [], "reason": "Independent task creation — no dependency on the store"}
+]
+
+### Example 8 — proactive memory write (user volunteers new fact implicitly)
+Input: "Sofia just joined as Head of Design — can you draft a welcome message for her?"
+Plan:
+[
+  {"id": "store_sofia", "tool": "graphiti",
+   "input": {"goal": "Store the fact: Sofia joined as Head of Design",
+             "entity_hints": ["Sofia"]},
+   "depends_on": [], "reason": "User shared a new durable fact — persist it proactively"},
+  {"id": "draft_welcome", "tool": "general",
+   "input": {"goal": "Draft a warm welcome message for Sofia, the new Head of Design"},
+   "depends_on": [], "reason": "Drafting does not depend on the store completing"}
 ]
 """
 
