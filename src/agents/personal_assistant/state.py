@@ -74,3 +74,6 @@ class AgentState(MessagesState, total=False):
     action_results: Annotated[dict[str, str], merge_results]
     completed_actions: Annotated[set[str], union_reducer]
     started_actions: Annotated[set[str], union_reducer]
+    # Worker-scoped fields — populated by executor via Send
+    action_id: str
+    action_input: dict
