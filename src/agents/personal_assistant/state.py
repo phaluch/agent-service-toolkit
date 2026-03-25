@@ -12,19 +12,6 @@ from pydantic import BaseModel, Field
 WorkerLiteral = Literal["todoist", "graphiti", "web_search", "general"]
 
 # ---------------------------------------------------------------------------
-# Backward-compat alias — remove when personal_assistant.py is rebuilt (TASK-13)
-# ---------------------------------------------------------------------------
-
-IntentLiteral = Literal[
-    "todoist",
-    "memory",
-    "web_search",
-    "general",
-    "retrieve_context",
-    "extract_and_store",
-]
-
-# ---------------------------------------------------------------------------
 # Core data models
 # ---------------------------------------------------------------------------
 
@@ -68,11 +55,7 @@ def union_reducer(left: set[str] | None, right: set[str]) -> set[str]:
 
 
 class AgentState(MessagesState, total=False):
-    # --- Backward-compat fields: used by the old personal_assistant.py graph.
-    # Remove when TASK-13 replaces the graph.
-    intents: list[IntentLiteral]
-    retrieved_context: str
-    # --- New planner-executor fields ---
+    # Orchestration fields
     complexity: Literal["simple", "complex"]
     fragments: list[Fragment]
     execution_plan: list[Action]
