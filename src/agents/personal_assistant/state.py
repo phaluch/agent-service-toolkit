@@ -68,6 +68,11 @@ def union_reducer(left: set[str] | None, right: set[str]) -> set[str]:
 
 
 class AgentState(MessagesState, total=False):
+    # --- Backward-compat fields: used by the old personal_assistant.py graph.
+    # Remove when TASK-13 replaces the graph.
+    intents: list[IntentLiteral]
+    retrieved_context: str
+    # --- New planner-executor fields ---
     complexity: Literal["simple", "complex"]
     fragments: list[Fragment]
     execution_plan: list[Action]
