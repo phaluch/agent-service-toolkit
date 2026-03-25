@@ -11,6 +11,7 @@ from langgraph.graph.state import CompiledStateGraph
 load_dotenv()
 
 from agents import DEFAULT_AGENT, get_agent  # noqa: E402
+from core import settings  # noqa: E402
 
 # The default agent uses StateGraph.compile() which returns CompiledStateGraph
 agent = cast(CompiledStateGraph, get_agent(DEFAULT_AGENT))
@@ -22,7 +23,11 @@ async def main() -> None:
     }
     result = await agent.ainvoke(
         input=inputs,
-        config=RunnableConfig(configurable={"thread_id": uuid4()}),
+        config=RunnableConfig(configurable={
+            "thread_id": uuid4(),
+            "user_name": settings.ASSISTANT_USER_NAME,
+            "user_context": settings.ASSISTANT_USER_CONTEXT,
+        }),
     )
     result["messages"][-1].pretty_print()
 

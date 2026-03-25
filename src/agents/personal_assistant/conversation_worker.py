@@ -35,9 +35,18 @@ async def conversation_worker(state: AgentState, config: RunnableConfig) -> Agen
     llm = get_model(model_name)
 
     context_section = f"\n## Pre-fetched context:\n{context}" if context else ""
+    user_name = config["configurable"].get("user_name", "")
+    user_context = config["configurable"].get("user_context", "")
+    user_parts = []
+    if user_name:
+        user_parts.append(f"You are speaking with {user_name}.")
+    if user_context:
+        user_parts.append(user_context)
+    user_section = ("\n\n## User identity\n\n" + " ".join(user_parts)) if user_parts else ""
     system_prompt = CONVERSATION_WORKER_PROMPT.format(
         date=datetime.now().strftime("%B %d, %Y"),
         context_section=context_section,
+        user_section=user_section,
     )
 
     messages = [

@@ -68,6 +68,19 @@ async def coordinator(state: AgentState, config: RunnableConfig) -> AgentState:
     )
     llm = get_model(model_name).with_structured_output(ExecutionPlan, method="function_calling")
 
+    user_name = config["configurable"].get("user_name", "")
+    user_section = (
+        f"\n## User identity\n\n"
+        f"The owner of this assistant is {user_name}. "
+        f"When creating a graphiti action that concerns the user personally "
+        f"(their preferences, goals, habits, or relationships), always include "
+        f'"{user_name}" in entity_hints so the graphiti worker uses a consistent '
+        f"entity name in the knowledge graph."
+        if user_name
+        else ""
+    )
+    coordinator_prompt = COORDINATOR_PROMPT.format(user_section=user_section)
+
     complexity = state.get("complexity", "simple")
     if complexity == "complex" and state.get("fragments"):
         fragments_text = "\n".join(
@@ -87,7 +100,7 @@ async def coordinator(state: AgentState, config: RunnableConfig) -> AgentState:
 
     try:
         result: ExecutionPlan = await llm.ainvoke(
-            [SystemMessage(content=COORDINATOR_PROMPT), HumanMessage(content=user_content)]
+            [SystemMessage(content=coordinator_prompt), HumanMessage(content=user_content)]
         )
         logger.debug("Coordinator produced %d action(s)", len(result.actions))
         return {"execution_plan": result.actions}

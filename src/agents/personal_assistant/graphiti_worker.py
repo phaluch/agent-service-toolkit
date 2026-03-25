@@ -44,9 +44,20 @@ async def graphiti_worker(state: AgentState, config: RunnableConfig) -> AgentSta
         if entity_hints
         else ""
     )
+    user_name = config["configurable"].get("user_name", "")
+    user_section = (
+        f"\n\n## User identity\n\n"
+        f"The owner of this assistant is {user_name}. "
+        f'When storing or retrieving facts that refer to the user themselves '
+        f'("I", "me", "my"), always represent them as "{user_name}" '
+        f"in all remember() calls and entity lookups."
+        if user_name
+        else ""
+    )
     system_prompt = GRAPHITI_WORKER_PROMPT.format(
         date=datetime.now().strftime("%B %d, %Y"),
         hints_section=hints_section,
+        user_section=user_section,
     )
 
     messages = [

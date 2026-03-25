@@ -1,4 +1,19 @@
-"""Personal assistant — Planner → Coordinator → Domain Workers graph."""
+"""Personal assistant — Planner → Coordinator → Domain Workers graph.
+
+Supported configurable keys (pass via agent_config in the API, or RunnableConfig directly):
+
+  user_name     (str) — canonical name of the assistant's owner, e.g. "Paulo".
+                        Used by the coordinator and graphiti/conversation workers to
+                        ensure the user is represented by a consistent entity name
+                        in the knowledge graph and in generated responses.
+
+  user_context  (str) — optional free-text persona/background for the conversation
+                        worker, e.g. "Paulo is a software developer who prefers
+                        concise, technical answers."
+
+  model         (str) — default model for all nodes (overridden per-node by
+                        coordinator_model, graphiti_model, etc.).
+"""
 
 import logging
 

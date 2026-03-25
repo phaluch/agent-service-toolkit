@@ -241,6 +241,10 @@ class Settings(BaseSettings):
                 case _:
                     raise ValueError(f"Unknown provider: {provider}")
 
+    # Personal assistant identity (injected into agent_config at runtime)
+    ASSISTANT_USER_NAME: str = ""
+    ASSISTANT_USER_CONTEXT: str = ""
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def BASE_URL(self) -> str:
