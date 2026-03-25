@@ -5,7 +5,7 @@ from collections import deque
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from agents.personal_assistant.prompts import COORDINATOR_PROMPT
 from agents.personal_assistant.state import Action, AgentState
@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 
 
 class ExecutionPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     actions: list[Action]
 
     @model_validator(mode="after")

@@ -1,9 +1,9 @@
 """Shared state schema for the personal assistant multi-agent graph."""
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from langgraph.graph import MessagesState
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 # ---------------------------------------------------------------------------
 # Worker type enum
@@ -27,9 +27,11 @@ class Fragment(BaseModel):
 class Action(BaseModel):
     """A single unit of work in the execution plan."""
 
+    model_config = ConfigDict(extra="forbid")
+
     id: str
     tool: WorkerLiteral
-    input: dict
+    input: dict[str, Any]
     depends_on: list[str] = Field(default_factory=list)
     reason: str
 
