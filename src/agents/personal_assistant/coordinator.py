@@ -66,7 +66,7 @@ async def coordinator(state: AgentState, config: RunnableConfig) -> AgentState:
         or config["configurable"].get("model")
         or settings.DEFAULT_MODEL
     )
-    llm = get_model(model_name).with_structured_output(ExecutionPlan)
+    llm = get_model(model_name).with_structured_output(ExecutionPlan, method="function_calling")
 
     complexity = state.get("complexity", "simple")
     if complexity == "complex" and state.get("fragments"):
