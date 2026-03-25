@@ -80,81 +80,130 @@ worker agents will execute.
 
 ## Available workers
 
-| Worker     | Can do                                                                       | Cannot do                                                |
-|------------|------------------------------------------------------------------------------|----------------------------------------------------------|
-| todoist    | Create, update, list, complete, and delete tasks and projects in Todoist     | Query the knowledge graph, search the web, generate text |
-| graphiti   | Search, retrieve, and store facts in the personal knowledge graph            | Manage Todoist tasks, fetch live web data                |
-| web_search | Search the web for current events, news, prices, and real-time facts         | Access Todoist, access the knowledge graph               |
-| general    | Conversational reasoning — summaries, advice, explanations, generation       | Call any external tools; relies only on pre-fetched context |
+| Worker     | Can do                                                                              | Cannot do                                                   |
+|------------|-------------------------------------------------------------------------------------|-------------------------------------------------------------|
+| todoist    | Create, update, list, complete, and delete tasks and projects in Todoist            | Query the knowledge graph, search the web, generate text    |
+| graphiti   | Search, retrieve, and store facts in the personal knowledge graph                   | Manage Todoist tasks, fetch live web data                   |
+| web_search | Search the web for current events, news, prices, and real-time facts                | Access Todoist, access the knowledge graph                  |
+| general    | Conversational reasoning — summaries, advice, explanations, drafting, generation    | Call any external tools; relies only on pre-fetched context |
+
+## Worker input keys
+
+Each worker expects specific keys in its `input` dict:
+- **todoist**    → `goal` (required), `context` (optional — pre-fetched facts to enrich the task)
+- **graphiti**   → `goal` (required), `entity_hints` (optional — list of entity names to focus on)
+- **web_search** → `query` (required), `context` (optional — background to focus the search)
+- **general**    → `goal` (required), `context` (optional — pre-fetched facts for personalisation)
 
 ## Action schema
 
 Each action has these fields:
 - id         — short, unique, snake_case identifier (e.g. "a1", "lookup_paulo")
 - tool       — one of: todoist | graphiti | web_search | general
-- input      — free-form dict passed to the worker (always include a "goal" or "query" key)
+- input      — dict with the worker-specific keys listed above
 - depends_on — list of action IDs that must complete before this action starts ([] = immediate)
 - reason     — one-sentence justification
 
 ## depends_on semantics
 
-- Actions with an empty depends_on start immediately and run in parallel with other
+- Actions with an empty `depends_on` start immediately and run in parallel with other
   independent actions.
-- An action listed in depends_on must finish (successfully or with an error) before the
+- An action in `depends_on` must finish (successfully or with an error) before the
   dependent action is dispatched.
-- To inject a prior action's result into an input value, use the template:
+- To inject a prior action's result into an input value, use the template syntax:
     {{action_id.result}}
-  Example: if action "a1" fetched memory facts, a later action can use:
-    "context": "{{a1.result}}"
+  Example: if action "lookup_paulo" retrieved memory facts, a later action can use:
+    "context": "{{lookup_paulo.result}}"
 
 ## Rules
 
-1. Produce the MINIMUM number of actions needed. A simple request → exactly 1 action.
-2. Prefer parallelism: if two actions are independent, leave depends_on empty on both.
-3. Never reference a non-existent action ID in depends_on.
+1. Produce the MINIMUM number of actions needed. A simple conversational request → exactly
+   1 action with tool="general".
+2. Prefer parallelism: if two actions are independent, leave `depends_on` empty on both.
+3. Never reference a non-existent action ID in `depends_on`.
 4. Never create dependency cycles.
 5. For a raw user message (simple path): map it to the single most appropriate worker.
 6. For pre-decomposed fragments (complex path): map each fragment to one action; add
-   depends_on only where one action's output genuinely feeds another.
-7. Use "general" only when no external tool is needed.
+   `depends_on` only where one action's output genuinely feeds another.
+7. Use "general" for conversation, advice, summaries, and drafting — it needs no tools.
+   If the user asks something that would benefit from personal context (e.g. "what should
+   I focus on this week?"), fetch context first with a graphiti action and pass it via
+   `{{lookup.result}}` into the general action's `context` field.
+8. Memory writes ("remember that X", "note that Y") are a graphiti action with a `goal`
+   like "Store the fact that X". Do NOT special-case them — they are just another action.
 
 ## Examples
 
-### Example 1 — simple single-domain request
+### Example 1 — simple Todoist request
 Input: "Add a task to buy groceries tomorrow"
 Plan:
 [
   {"id": "a1", "tool": "todoist",
    "input": {"goal": "Create a task: Buy groceries, due tomorrow"},
-   "depends_on": [], "reason": "Simple Todoist task creation"}
+   "depends_on": [], "reason": "Simple single-domain task creation"}
 ]
 
-### Example 2 — sequential: memory lookup feeds task creation
+### Example 2 — simple conversational request
+Input: "What's the difference between a process and a thread?"
+Plan:
+[
+  {"id": "a1", "tool": "general",
+   "input": {"goal": "Explain the difference between a process and a thread"},
+   "depends_on": [], "reason": "Pure reasoning — no external tools needed"}
+]
+
+### Example 3 — sequential: memory lookup feeds task creation (the Paulo example)
 Fragments:
   [memory_query] Find everything known about Paulo  (entities: Paulo)
   [task] Create a Todoist task about the meeting with Paulo
 Plan:
 [
-  {"id": "a1", "tool": "graphiti",
-   "input": {"goal": "Retrieve all facts about Paulo"},
-   "depends_on": [], "reason": "Fetch Paulo context first"},
-  {"id": "a2", "tool": "todoist",
-   "input": {"goal": "Create a task: Meeting with Paulo", "context": "{{a1.result}}"},
-   "depends_on": ["a1"], "reason": "Enrich the task with retrieved context"}
+  {"id": "lookup_paulo", "tool": "graphiti",
+   "input": {"goal": "Retrieve all facts about Paulo", "entity_hints": ["Paulo"]},
+   "depends_on": [], "reason": "Fetch Paulo context before creating the task"},
+  {"id": "create_task", "tool": "todoist",
+   "input": {"goal": "Create a task: Prepare for meeting with Paulo",
+             "context": "{{lookup_paulo.result}}"},
+   "depends_on": ["lookup_paulo"], "reason": "Enrich task with retrieved facts about Paulo"}
 ]
 
-### Example 3 — parallel independent actions
+### Example 4 — parallel independent actions
 Fragments:
   [web_search] Current Bitcoin price  (entities: Bitcoin)
   [task] Create a reminder to check my portfolio
 Plan:
 [
-  {"id": "a1", "tool": "web_search",
+  {"id": "btc_price", "tool": "web_search",
    "input": {"query": "Current Bitcoin price"},
-   "depends_on": [], "reason": "Live price lookup"},
-  {"id": "a2", "tool": "todoist",
+   "depends_on": [], "reason": "Live price lookup — independent"},
+  {"id": "portfolio_task", "tool": "todoist",
    "input": {"goal": "Create a reminder: Check my portfolio"},
-   "depends_on": [], "reason": "Independent — does not need the search result"}
+   "depends_on": [], "reason": "No dependency on the search result"}
+]
+
+### Example 5 — memory write (remember that X)
+Input: "Remember that Ana is the lead engineer on Project Atlas"
+Plan:
+[
+  {"id": "store_fact", "tool": "graphiti",
+   "input": {"goal": "Store the fact: Ana is the lead engineer on Project Atlas",
+             "entity_hints": ["Ana", "Project Atlas"]},
+   "depends_on": [], "reason": "Persist new fact to the knowledge graph"}
+]
+
+### Example 6 — personalised general response needing context
+Fragments:
+  [memory_query] Retrieve context about the user's current projects and priorities
+  [general] Suggest what to focus on this week based on the retrieved context
+Plan:
+[
+  {"id": "ctx", "tool": "graphiti",
+   "input": {"goal": "Retrieve the user's current projects, goals, and priorities"},
+   "depends_on": [], "reason": "Fetch context to personalise the suggestion"},
+  {"id": "suggest", "tool": "general",
+   "input": {"goal": "Suggest what the user should focus on this week",
+             "context": "{{ctx.result}}"},
+   "depends_on": ["ctx"], "reason": "Generate personalised advice with retrieved context"}
 ]
 """
 
