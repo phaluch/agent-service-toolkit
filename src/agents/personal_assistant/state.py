@@ -73,3 +73,4 @@ class AgentState(MessagesState, total=False):
     execution_plan: list[Action]
     action_results: Annotated[dict[str, str], merge_results]
     completed_actions: Annotated[set[str], union_reducer]
+    started_actions: Annotated[set[str], union_reducer]
