@@ -90,7 +90,7 @@ async def executor(state: AgentState, config: RunnableConfig) -> Command:
     newly_started: set[str] = set()
 
     for action in ready:
-        resolved_input = _resolve_input(action.input, results)
+        resolved_input = _resolve_input(action.input.model_dump(), results)
         node = _WORKER_NODE[action.tool]
         sends.append(
             Send(node, {"action_id": action.id, "action_input": resolved_input})
