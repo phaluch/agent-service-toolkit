@@ -68,6 +68,43 @@ Both tracks converge at TASK-13 (assembly).
 
 ---
 
+## Branching strategy
+
+### Long-lived integration branch
+
+`main` stays stable. `feat/planner-executor` is the staging area for the entire
+refactor. It only merges to `main` when TASK-15 (integration tests) is green.
+
+### Task branches: `pe/<task-id>-<slug>`
+
+All task branches use the short `pe/` prefix for scannability and branch off
+`feat/planner-executor`. Examples:
+
+```
+feat/planner-executor
+  ├── pe/task-01-state-schema
+  ├── pe/task-02-intake
+  ├── pe/task-03-decomposer
+  ├── pe/task-04-coordinator      ← branches off pe/task-03-decomposer (see below)
+  └── ...
+```
+
+### Dependency rule
+
+When TASK-X depends on TASK-Y and TASK-Y hasn't merged yet, branch off TASK-Y's
+branch rather than waiting:
+
+```
+feat/planner-executor
+  └── pe/task-03-decomposer
+        └── pe/task-04-coordinator   ← PR targets pe/task-03-decomposer
+```
+
+The PR for TASK-04 targets `pe/task-03-decomposer` first, which rebases cleanly
+into `feat/planner-executor` once TASK-03 merges. Avoids long idle waits.
+
+---
+
 ## EPIC 0 — Foundation
 
 ### TASK-01 · New state schema & data models
