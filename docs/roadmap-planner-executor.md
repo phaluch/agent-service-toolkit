@@ -7,6 +7,13 @@ Refactor the `personal_assistant` from a flat supervisor-router pattern into a
 where, in what order). Domain workers are autonomous within their own silo and
 have no awareness of other workers.
 
+## Development environment note
+
+This project runs entirely in Docker. Do **not** run bare `python`, `pytest`, or similar
+commands directly on the host — they will use the wrong interpreter or environment.
+Always use `docker compose exec <service> <command>` to run commands inside the correct
+container.
+
 ---
 
 ## Architecture target
