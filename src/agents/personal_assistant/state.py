@@ -29,6 +29,14 @@ IntentLiteral = Literal[
 # ---------------------------------------------------------------------------
 
 
+class Fragment(BaseModel):
+    """A self-contained sub-goal extracted from a complex request."""
+
+    type: Literal["task", "memory_store", "memory_query", "web_search", "general"]
+    content: str
+    entities: list[str] = Field(default_factory=list)
+
+
 class Action(BaseModel):
     """A single unit of work in the execution plan."""
 
@@ -61,6 +69,7 @@ def union_reducer(left: set[str] | None, right: set[str]) -> set[str]:
 
 class AgentState(MessagesState, total=False):
     complexity: Literal["simple", "complex"]
+    fragments: list[Fragment]
     execution_plan: list[Action]
     action_results: Annotated[dict[str, str], merge_results]
     completed_actions: Annotated[set[str], union_reducer]
