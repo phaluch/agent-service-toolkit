@@ -49,7 +49,7 @@ async def graphiti_worker(state: AgentState, config: RunnableConfig) -> AgentSta
         f"\n\n## User identity\n\n"
         f"The owner of this assistant is {user_name}. "
         f'When storing or retrieving facts that refer to the user themselves '
-        f'("I", "me", "my"), always represent them as "{user_name}" '
+        f'("I", "me", "my"), always represent them as "USER" for ease of retrieval '
         f"in all remember() calls and entity lookups."
         if user_name
         else ""
