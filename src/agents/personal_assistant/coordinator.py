@@ -119,7 +119,14 @@ async def coordinator(state: AgentState, config: RunnableConfig) -> AgentState:
             [SystemMessage(content=coordinator_prompt), HumanMessage(content=user_content)]
         )
         logger.debug("Coordinator produced %d action(s)", len(result.actions))
-        return {"execution_plan": result.actions}
+        # Reset per-invocation tracking so stale results from a prior run don't
+        # cause the executor to skip actions that share the same ID.
+        return {
+            "execution_plan": result.actions,
+            "action_results": None,
+            "completed_actions": None,
+            "started_actions": None,
+        }
     except Exception as e:
         logger.error("Coordinator failed: %s", e)
         return {"execution_plan": []}

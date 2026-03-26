@@ -113,13 +113,17 @@ Action = Annotated[
 # ---------------------------------------------------------------------------
 
 
-def merge_results(left: dict[str, str] | None, right: dict[str, str]) -> dict[str, str]:
-    """Merge two action-result dicts; safe for concurrent writes."""
+def merge_results(left: dict[str, str] | None, right: dict[str, str] | None) -> dict[str, str]:
+    """Merge two action-result dicts; safe for concurrent writes. Pass None to reset."""
+    if right is None:
+        return {}
     return {**(left or {}), **right}
 
 
-def union_reducer(left: set[str] | None, right: set[str]) -> set[str]:
-    """Union two completed-action sets; safe for concurrent writes."""
+def union_reducer(left: set[str] | None, right: set[str] | None) -> set[str]:
+    """Union two completed-action sets; safe for concurrent writes. Pass None to reset."""
+    if right is None:
+        return set()
     return (left or set()) | right
 
 
