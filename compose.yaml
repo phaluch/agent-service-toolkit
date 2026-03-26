@@ -78,6 +78,8 @@ services:
       retries: 5
     environment:
       - AGENT_URL=http://agent_service:8080
+      - ASSISTANT_USER_NAME
+      - ASSISTANT_USER_CONTEXT
     develop:
       watch:
         - path: src/client/

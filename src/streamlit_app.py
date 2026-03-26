@@ -7,7 +7,6 @@ from collections.abc import AsyncGenerator
 import streamlit as st
 from dotenv import load_dotenv
 from client import AgentClient, AgentClientError
-from core import settings
 from schema import ChatHistory, ChatMessage
 from voice import VoiceManager
 
@@ -161,10 +160,10 @@ async def main() -> None:
             ]:
                 if val != "default":
                     agent_config[key] = val
-            if settings.ASSISTANT_USER_NAME:
-                agent_config["user_name"] = settings.ASSISTANT_USER_NAME
-            if settings.ASSISTANT_USER_CONTEXT:
-                agent_config["user_context"] = settings.ASSISTANT_USER_CONTEXT
+            if user_name := os.environ.get("ASSISTANT_USER_NAME"):
+                agent_config["user_name"] = user_name
+            if user_context := os.environ.get("ASSISTANT_USER_CONTEXT"):
+                agent_config["user_context"] = user_context
 
             # Audio toggle with callback: clears cached audio when toggled off
             enable_audio = st.toggle(

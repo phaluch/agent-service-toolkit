@@ -79,7 +79,7 @@ async def coordinator(state: AgentState, config: RunnableConfig) -> AgentState:
         if user_name
         else ""
     )
-    coordinator_prompt = COORDINATOR_PROMPT.format(user_section=user_section)
+    coordinator_prompt = COORDINATOR_PROMPT.replace("{user_section}", user_section)
 
     complexity = state.get("complexity", "simple")
     if complexity == "complex" and state.get("fragments"):

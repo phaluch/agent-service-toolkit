@@ -57,6 +57,21 @@ docker compose watch
 - Chat UI: http://localhost:8501
 - API + docs: http://localhost:8080/redoc
 
+## Kuzu graph explorer
+
+The stack includes a [Kuzu](https://kuzudb.com/) graph database used by the memory system. You can browse it with the built-in explorer, but Kuzu only allows one connection at a time, so you must stop `agent_service` first:
+
+```sh
+docker compose stop agent_service
+docker compose --profile explorer up kuzu-explorer
+```
+
+The explorer runs at http://localhost:8000. When you're done, press `Ctrl+C` to stop it, then restart the agent:
+
+```sh
+docker compose up agent_service -d
+```
+
 ## Project structure
 
 ```
