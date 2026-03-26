@@ -26,6 +26,10 @@ from schema.models import AllModelEnum, AnthropicModelName, OpenAIModelName
 
 logger = logging.getLogger(__name__)
 
+
+def _langsmith_enabled() -> bool:
+    return os.getenv("LANGSMITH_TRACING", "").lower() in ("true", "1")
+
 GRAPHITI_DB_DIR = "./data/personal_assistant_graphiti.db"
 
 # ---------------------------------------------------------------------------
@@ -38,6 +42,44 @@ _ANTHROPIC_MODEL_IDS: dict[AnthropicModelName, str] = {
     AnthropicModelName.SONNET_45: "claude-sonnet-4-5",
     AnthropicModelName.SONNET_46: "claude-sonnet-4-6",
 }
+
+
+# ---------------------------------------------------------------------------
+# LangSmith tracing helpers
+# ---------------------------------------------------------------------------
+
+
+try:
+    from langsmith import traceable as _traceable
+except ImportError:
+    import functools
+
+    def _traceable(**_kw):  # type: ignore[misc]
+        """No-op shim when langsmith is not installed."""
+
+        def _decorator(fn):
+            @functools.wraps(fn)
+            async def _wrapper(*args, **kwargs):
+                return await fn(*args, **kwargs)
+
+            return _wrapper
+
+        return _decorator
+
+
+def _wrap_openai_client(api_key: str):
+    """Return an AsyncOpenAI client wrapped with LangSmith tracing if enabled."""
+    from openai import AsyncOpenAI
+
+    raw = AsyncOpenAI(api_key=api_key)
+    if _langsmith_enabled():
+        try:
+            from langsmith.wrappers import wrap_openai
+
+            return wrap_openai(raw)
+        except ImportError:
+            logger.warning("GRAPHITI: langsmith not installed — OpenAI calls will not be traced")
+    return raw
 
 
 # ---------------------------------------------------------------------------
@@ -67,7 +109,10 @@ def _build_graphiti_llm_client(model: AllModelEnum | None):
         from graphiti_core.llm_client.openai_client import OpenAIClient
 
         logger.info("GRAPHITI LLM: OpenAI %s", model.value)
-        return OpenAIClient(LLMConfig(api_key=openai_key, model=model.value))
+        return OpenAIClient(
+            LLMConfig(api_key=openai_key, model=model.value),
+            client=_wrap_openai_client(openai_key),
+        )
 
     # Fallback (model=None or unsupported provider): prefer Anthropic, then OpenAI
     if anthropic_key:
@@ -81,7 +126,10 @@ def _build_graphiti_llm_client(model: AllModelEnum | None):
     from graphiti_core.llm_client.openai_client import OpenAIClient
 
     logger.info("GRAPHITI LLM: fallback → OpenAI default")
-    return OpenAIClient(LLMConfig(api_key=openai_key or ""))
+    return OpenAIClient(
+        LLMConfig(api_key=openai_key or ""),
+        client=_wrap_openai_client(openai_key or ""),
+    )
 
 
 def _build_embedder():
@@ -165,6 +213,7 @@ async def get_graphiti(model: AllModelEnum | None = None) -> Graphiti:
 # ---------------------------------------------------------------------------
 
 
+@_traceable(name="graphiti:add_episode", run_type="tool")
 async def add_episode(
     content: str,
     group_id: str = "default",
@@ -191,6 +240,7 @@ async def add_episode(
         logger.exception("GRAPHITI add_episode failed for %r", name)
 
 
+@_traceable(name="graphiti:search_memory", run_type="retriever")
 async def search_memory(
     query: str,
     num_results: int = 10,
@@ -236,6 +286,7 @@ async def search_memory(
         return ""
 
 
+@_traceable(name="graphiti:search_nodes", run_type="retriever")
 async def search_nodes(
     query: str,
     group_id: str = "default",
@@ -277,6 +328,7 @@ async def search_nodes(
         return f"Entity search failed for '{query}'."
 
 
+@_traceable(name="graphiti:get_entity_context", run_type="retriever")
 async def get_entity_context(
     entity_name: str,
     group_id: str = "default",
