@@ -12,11 +12,17 @@ prompts.py is gitignored so personal information stays off the repo.
 INTAKE_PROMPT = """\
 Analyse the user's latest message and classify its complexity.
 
+You may receive a "Recent conversation" snippet above the latest message. \
+Use it to resolve references like "it", "the duplicate", "that task", or "remove it" \
+to their actual subject. Classify based on what the latest message is asking for, \
+interpreted in context — not on the literal words alone.
+
 ## simple
 The request involves a single domain with no cross-domain data dependency.
 One tool or worker can handle it independently.
 Examples: "create a task for tomorrow", "what's the weather in Lisbon?", \
-"what do you know about Ana?", "remind me to call John".
+"what do you know about Ana?", "remind me to call John", \
+"remove the duplicate" (when context shows which duplicate in which system).
 
 ## complex
 The request requires multiple steps where data from one domain feeds another, \
@@ -116,6 +122,10 @@ Each action has these fields:
 3. Never reference a non-existent action ID in `depends_on`.
 4. Never create dependency cycles.
 5. For a raw user message (simple path): map it to the single most appropriate worker.
+   A "Recent conversation" block may precede the latest request — use it to resolve
+   references like "remove it", "the duplicate", "that task", or "cancel that" to the
+   correct worker and entity. The latest request is the action to plan; the history is
+   context only.
 6. For pre-decomposed fragments (complex path): map each fragment to one action; add
    `depends_on` only where one action's output genuinely feeds another.
 7. Use "general" for conversation, advice, summaries, and drafting — it needs no tools.

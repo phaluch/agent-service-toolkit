@@ -3,7 +3,7 @@
 import logging
 from collections import deque
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, ConfigDict, model_validator
 
@@ -96,7 +96,23 @@ async def coordinator(state: AgentState, config: RunnableConfig) -> AgentState:
         last = human_messages[-1].content
         if not isinstance(last, str):
             return {"execution_plan": []}
-        user_content = last
+        # Include recent conversation so follow-up messages ("remove the duplicate",
+        # "do it", "cancel that") can be resolved to the correct worker and entity.
+        recent = state["messages"][-8:]
+        history_lines = []
+        for m in recent[:-1]:
+            if isinstance(m, HumanMessage) and isinstance(m.content, str):
+                history_lines.append(f"[User]: {m.content}")
+            elif isinstance(m, AIMessage) and isinstance(m.content, str):
+                history_lines.append(f"[Assistant]: {m.content}")
+        if history_lines:
+            user_content = (
+                "Recent conversation:\n"
+                + "\n".join(history_lines)
+                + f"\n\nLatest user request: {last}"
+            )
+        else:
+            user_content = last
 
     try:
         result: ExecutionPlan = await llm.ainvoke(
